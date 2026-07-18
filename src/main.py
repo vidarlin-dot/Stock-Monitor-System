@@ -116,8 +116,17 @@ def extract_event_date(title: str) -> Optional[str]:
     return None
 
 
-def check_catalyst(catalyst_date_str: Optional[str], event_name: str = "") -> Optional[str]:
-    """Check if a catalyst event is within 30 days."""
+def check_catalyst_with_detail(catalyst_date_str: Optional[str], event_name: str = "", event_detail: str = "") -> Optional[str]:
+    """Check if a catalyst event is within 30 days and return formatted string.
+
+    Args:
+        catalyst_date_str: Date string in YYYY-MM-DD format.
+        event_name: Event category (e.g., '財報', 'FDA批准').
+        event_detail: Additional detail about the event.
+
+    Returns:
+        Formatted reminder string or None if expired.
+    """
     if not catalyst_date_str:
         return None
     try:
@@ -128,25 +137,28 @@ def check_catalyst(catalyst_date_str: Optional[str], event_name: str = "") -> Op
     today = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     delta = (catalyst_dt - today).days
     
-    event_display = event_name if event_name else "催化劑"
+    if delta < 0:
+        return None  # Expired
+    
+    # Build event display with detail
+    if event_detail:
+        display = f"{event_name}（{event_detail}）"
+    elif event_name and event_name != "催化劑":
+        display = event_name
+    else:
+        display = "催化劑"
     
     if 0 <= delta <= 7:
-        return f"🔥 {event_display}倒數 — {delta} 天後 ({catalyst_date_str})"
-    if delta < 0:
-        return None
+        return f"🔥 {display}倒數 — {delta} 天後 ({catalyst_date_str})"
     if delta <= 30:
-        return f"⚡ {event_display}倒數 — {delta} 天後 ({catalyst_date_str})"
+        return f"⚡ {display}倒數 — {delta} 天後 ({catalyst_date_str})"
     return None
 
 
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
 ) -> tuple[str, List[Dict[str, Any]]]:
-    """Generate a structured daily investment report in Traditional Chinese.
-    
-    Returns:
-        (report_string, updated_holdings_list)
-    """
+    """Generate a structured daily investment report in Traditional Chinese."""
     now_tw = datetime.now(TW_TZ)
     date_str: str = now_tw.strftime("%Y-%m-%d (%A)")
 
@@ -232,7 +244,7 @@ def build_daily_report(
             else:
                 report_lines.append(f"   📌 賣出區間: {zone_str}")
 
-        # Process catalysts with event names
+        # Process catalysts with event names and details
         new_catalysts: List[Dict[str, str]] = []
         
         if catalyst_raw:
@@ -242,7 +254,7 @@ def build_daily_report(
                     catalyst_dt = datetime.strptime(cd, "%Y-%m-%d")
                     today_dt = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
                     if catalyst_dt >= today_dt:
-                        new_catalysts.append({"date": cd, "name": "催化劑"})
+                        new_catalysts.append({"date": cd, "name": "催化劑", "detail": ""})
                 except ValueError:
                     pass
 
@@ -255,7 +267,9 @@ def build_daily_report(
                 event_date = extract_event_date(title)
                 if event_date:
                     event_category = classify_event(title)
-                    new_catalysts.append({"date": event_date, "name": event_category})
+                    # Extract key detail from title (first 30 chars)
+                    event_detail = title[:50] + "..." if len(title) > 50 else title
+                    new_catalysts.append({"date": event_date, "name": event_category, "detail": event_detail})
 
         # Deduplicate
         seen_dates: set = set()
@@ -265,9 +279,9 @@ def build_daily_report(
                 seen_dates.add(c["date"])
                 unique_catalysts.append(c)
 
-        # Show catalyst reminders
+        # Show catalyst reminders with event details
         for c in unique_catalysts:
-            cat_reminder = check_catalyst(c["date"], c["name"])
+            cat_reminder = check_catalyst_with_detail(c["date"], c["name"], c["detail"])
             if cat_reminder:
                 report_lines.append(f"   {cat_reminder}")
 
@@ -276,7 +290,6 @@ def build_daily_report(
         h_updated["catalystdate"] = ",".join(c["date"] for c in unique_catalysts)
         updated_holdings.append(h_updated)
 
-        # Show notes
         if notes:
             report_lines.append(f"   💬 {notes}")
 
