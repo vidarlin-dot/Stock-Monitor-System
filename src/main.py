@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -55,52 +56,110 @@ def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def translate_news(news_items: List[Dict[str, str]]) -> List[str]:
-    """Translate English news titles to Chinese using simple keyword mapping.
+def classify_event(title: str) -> str:
+    """Classify news title into event category.
 
-    Since we cannot use paid translation APIs in free tier,
-    we extract key entities and events from titles.
+    Returns:
+        Event category string like '財報', 'FDA批准', '量產', etc.
     """
-    translated: List[str] = []
-    for item in news_items:
-        title = item.get("title", "").strip()
-        if not title:
-            continue
-        # Truncate long titles
-        if len(title) > 80:
-            title = title[:77] + "..."
-        translated.append(title)
-    return translated
+    title_lower = title.lower()
+    
+    # Earnings
+    if any(kw in title_lower for kw in ["earnings", "quarterly", "q1", "q2", "q3", "q4", "財報", "季報", "年報"]):
+        return "財報"
+    
+    # FDA / Regulatory approval
+    if any(kw in title_lower for kw in ["fda", "approval", "批准", "認證", "regulatory", "nda", "bla", "pma"]):
+        return "FDA批准"
+    
+    # Clinical trial results
+    if any(kw in title_lower for kw in ["phase 3", "phase ii", "phase i", "clinical", "試驗", "結果", "data readout"]):
+        return "臨床試驗"
+    
+    # Production / Manufacturing
+    if any(kw in title_lower for kw in ["production", "量產", "manufacturing", "產能", "mass production"]):
+        return "量產"
+    
+    # Partnership / Collaboration
+    if any(kw in title_lower for kw in ["partnership", "合作", "collaboration", "alliance", "joint venture"]):
+        return "合作"
+    
+    # Product launch
+    if any(kw in title_lower for kw in ["launch", "推出", "release", "新品", "product launch"]):
+        return "產品發布"
+    
+    # Financial / Investment
+    if any(kw in title_lower for kw in ["investment", "融資", "fundraising", "ipo", "listing", "上市"]):
+        return "融資/上市"
+    
+    # Analyst rating
+    if any(kw in title_lower for kw in ["upgrade", "downgrade", "目標價", "rating", "分析師", "consensus"]):
+        return "評級調整"
+    
+    # Generic important event
+    return "重要公告"
 
 
-def extract_event_dates(title: str, publisher: str) -> Optional[str]:
-    """Extract potential event dates from news title.
+def extract_event_date(title: str) -> Optional[str]:
+    """Extract potential event date from news title.
 
-    Looks for patterns like:
-    - Q3 2026, FY2026, 2026 Q3
-    - August 2026, Aug 2026
-    - Dec 15, 2026
+    Returns:
+        Date string in YYYY-MM-DD format, or None.
     """
-    import re
+    # Pattern: Month Day, Year
+    match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4})', title, re.IGNORECASE)
+    if match:
+        month_str, day_str, year_str = match.groups()
+        month_map = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+        month = month_map.get(month_str.lower()[:3])
+        if month:
+            try:
+                dt = datetime(int(year_str), month, int(day_str))
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
     
-    # Pattern: Month Day, Year or Month Year
-    patterns = [
-        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}',
-        r'\d{4}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*',
-        r'Q[1-4]\s+\d{4}',
-        r'FY\d{4}',
-    ]
+    # Pattern: Q1 2026, Q3 2026
+    match = re.search(r'Q(\d)\s+(\d{4})', title, re.IGNORECASE)
+    if match:
+        quarter, year = match.groups()
+        quarter_months = {
+            "1": (1, 31), "2": (4, 30), "3": (7, 31), "4": (10, 31)
+        }
+        if quarter in quarter_months:
+            start_month, _ = quarter_months[quarter]
+            try:
+                dt = datetime(int(year), start_month, 15)  # Mid-month approximation
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
     
-    for pattern in patterns:
-        match = re.search(pattern, title, re.IGNORECASE)
-        if match:
-            return match.group(0)
+    # Pattern: FY2026
+    match = re.search(r'FY(\d{4})', title, re.IGNORECASE)
+    if match:
+        year = match.group(1)
+        try:
+            dt = datetime(int(year), 12, 31)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
     
     return None
 
 
-def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
-    """Check if a catalyst event is within 30 days."""
+def check_catalyst(catalyst_date_str: Optional[str], event_name: str = "") -> Optional[str]:
+    """Check if a catalyst event is within 30 days.
+
+    Args:
+        catalyst_date_str: Date string in YYYY-MM-DD format.
+        event_name: Name of the event for display.
+
+    Returns:
+        Reminder string or None if expired.
+    """
     if not catalyst_date_str:
         return None
     try:
@@ -108,16 +167,20 @@ def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
     except ValueError:
         logger.warning("Invalid catalyst date format: %s", catalyst_date_str)
         return None
+    
     today = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     delta = (catalyst_dt - today).days
     
+    # Build event name display
+    event_display = event_name if event_name else "催化劑"
+    
     # Highlight if within 1 week
     if 0 <= delta <= 7:
-        return f"🔥 重大事件倒數 — {delta} 天後 ({catalyst_date_str})"
+        return f"🔥 {event_display}倒數 — {delta} 天後 ({catalyst_date_str})"
     if delta < 0:
         return None  # Expired, will be cleaned
     if delta <= 30:
-        return f"⚡ 催化劑倒數 — {delta} 天後 ({catalyst_date_str})"
+        return f"⚡ {event_display}倒數 — {delta} 天後 ({catalyst_date_str})"
     return None
 
 
@@ -218,8 +281,10 @@ def build_daily_report(
             else:
                 report_lines.append(f"   📌 賣出區間: {zone_str}")
 
-        # Clean expired catalysts and collect new ones
-        new_catalysts: List[str] = []
+        # Clean expired catalysts and collect new ones with event names
+        new_catalysts: List[Dict[str, str]] = []  # List of {"date": str, "name": str}
+        
+        # Add existing catalysts
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
@@ -227,37 +292,59 @@ def build_daily_report(
                     catalyst_dt = datetime.strptime(cd, "%Y-%m-%d")
                     today_dt = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
                     if catalyst_dt >= today_dt:
-                        new_catalysts.append(cd)
-                        cat_reminder = check_catalyst(cd)
-                        if cat_reminder:
-                            report_lines.append(f"   {cat_reminder}")
+                        new_catalysts.append({"date": cd, "name": "催化劑"})
                 except ValueError:
-                    new_catalysts.append(cd)  # Keep invalid dates for manual review
+                    pass  # Skip invalid dates
 
         # Add event dates from news
         if stock_info and stock_info.get("news"):
             for news_item in stock_info["news"]:
-                event_date = extract_event_dates(news_item.get("title", ""), news_item.get("publisher", ""))
+                title = news_item.get("title", "")
+                if not title:
+                    continue
+                
+                event_date = extract_event_date(title)
                 if event_date:
-                    new_catalysts.append(event_date)
-                    report_lines.append(f"   📅 新聞發現事件: {event_date}")
+                    event_category = classify_event(title)
+                    new_catalysts.append({"date": event_date, "name": event_category})
+                    
+                    # Show event in report
+                    today_dt = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+                    try:
+                        evt_dt = datetime.strptime(event_date, "%Y-%m-%d")
+                        delta = (evt_dt - today_dt).days
+                        if 0 <= delta <= 30:
+                            event_display = f"{event_category}"
+                            if 0 <= delta <= 7:
+                                report_lines.append(f"   🔥 {event_display}倒數 — {delta} 天後 ({event_date})")
+                            else:
+                                report_lines.append(f"   ⚡ {event_display}倒數 — {delta} 天後 ({event_date})")
+                    except ValueError:
+                        pass
 
-        # Deduplicate catalysts
-        seen: set = set()
-        unique_catalysts: List[str] = []
+        # Deduplicate catalysts by date
+        seen_dates: set = set()
+        unique_catalysts: List[Dict[str, str]] = []
         for c in new_catalysts:
-            if c not in seen:
-                seen.add(c)
+            if c["date"] not in seen_dates:
+                seen_dates.add(c["date"])
                 unique_catalysts.append(c)
 
-        # Update holding with cleaned catalysts
+        # Build display text for catalysts and update holding
+        catalyst_parts: List[str] = []
+        for c in unique_catalysts:
+            cat_reminder = check_catalyst(c["date"], c["name"])
+            if cat_reminder:
+                report_lines.append(f"   {cat_reminder}")
+            catalyst_parts.append(c["date"])
+
         h_updated = dict(h)
-        h_updated["catalystdate"] = ",".join(unique_catalysts) if unique_catalysts else ""
+        h_updated["catalystdate"] = ",".join(c["date"] for c in unique_catalysts)
         updated_holdings.append(h_updated)
 
         # News
         if stock_info and stock_info.get("news"):
-            for news_item in stock_info["news"][:3]:  # Top 3 news
+            for news_item in stock_info["news"][:3]:
                 title = news_item.get("title", "").strip()
                 if title:
                     if len(title) > 80:
@@ -304,25 +391,25 @@ def main() -> None:
 
     # Update Sheet (clean expired catalysts, add new event dates)
     try:
-        # Find the worksheet
         worksheet = manager.client.open(manager.sheet_name).worksheet("Holdings")
         rows = worksheet.get_all_values()
         
         if len(rows) >= 2:
             headers = rows[0]
+            cat_col_idx = headers.index("catalystdate") if "catalystdate" in headers else -1
+            
+            if cat_col_idx < 0:
+                logger.warning("catalystdate column not found in sheet.")
+            
             for upd_h in updated_holdings:
                 ticker = str(upd_h.get("ticker", upd_h.get("代碼", ""))).strip().upper()
                 if not ticker:
                     continue
                 
-                # Find row index
                 for i, row in enumerate(rows[1:], start=2):
                     if row[0] == ticker:
-                        # Update catalyst date column
-                        if "catalystdate" in upd_h:
-                            cat_col_idx = headers.index("catalystdate") if "catalystdate" in headers else -1
-                            if cat_col_idx >= 0:
-                                worksheet.update_cell(i, cat_col_idx + 1, upd_h["catalystdate"])
+                        if cat_col_idx >= 0 and "catalystdate" in upd_h:
+                            worksheet.update_cell(i, cat_col_idx + 1, upd_h["catalystdate"])
                         break
         logger.info("Sheet updated with cleaned catalyst dates.")
     except Exception as exc:
