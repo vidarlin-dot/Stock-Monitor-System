@@ -47,14 +47,9 @@ def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
 
 
 def translate_news_to_chinese(title: str, publisher: str = "") -> str:
-    """Translate English news title to Traditional Chinese summary.
-
-    Uses keyword mapping and pattern matching to produce a concise
-    Chinese summary.
-    """
+    """Translate English news title to Traditional Chinese summary."""
     title_lower = title.lower()
     
-    # Translation keyword map
     translations = {
         "earnings": "財報",
         "revenue": "營收",
@@ -114,7 +109,6 @@ def translate_news_to_chinese(title: str, publisher: str = "") -> str:
         "headwind": "逆風",
     }
     
-    # Build Chinese summary by replacing keywords
     chinese_parts: List[str] = []
     remaining = title
     
@@ -123,17 +117,14 @@ def translate_news_to_chinese(title: str, publisher: str = "") -> str:
             chinese_parts.append(zh_word)
             remaining = re.sub(re.escape(en_word), "", remaining, flags=re.IGNORECASE).strip()
     
-    # Clean up remaining text
     remaining = re.sub(r'[^\w\s\-]', '', remaining).strip()
     
-    # Combine parts
     if chinese_parts:
         summary = " ".join(chinese_parts)
         if remaining and len(remaining) < 50:
             summary += f"：{remaining}"
         return summary
     else:
-        # Fallback: just clean up the title
         cleaned = re.sub(r'[^\w\s\-]', '', remaining).strip()
         return cleaned[:60] if len(cleaned) > 60 else cleaned
 
@@ -168,13 +159,17 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
 
 
 def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[str]:
-    """Check if an event is within 30 days and return formatted string."""
+    """Check if an event is within 30 days and return formatted string.
+    
+    All datetime objects are naive (no timezone) to avoid comparison errors.
+    """
     try:
         event_dt = datetime.strptime(str(event_date_str), "%Y-%m-%d")
     except ValueError:
         return None
     
-    today = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Use naive datetime for both
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     delta = (event_dt - today).days
     
     if delta < 0:
