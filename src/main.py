@@ -46,27 +46,85 @@ def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def check_catalyst_with_detail(catalyst_date_str: Optional[str], event_name: str = "") -> Optional[str]:
-    """Check if a catalyst event is within 30 days."""
-    if not catalyst_date_str:
-        return None
+def classify_catalyst(date_str: str, notes: str = "") -> str:
+    """Classify a catalyst date into an event type based on notes.
+
+    Args:
+        date_str: The date string.
+        notes: The notes field from the sheet.
+
+    Returns:
+        Event type like '財報', 'FDA批准', '臨床試驗', etc.
+    """
+    notes_lower = notes.lower() if notes else ""
+    
+    # Keywords to detect event types
+    keywords = {
+        "財報": ["財報", "earnings", "quarterly", "q1", "q2", "q3", "q4", "季報", "年報"],
+        "FDA批准": ["fda", "批准", "認證", "regulatory", "nda", "bla"],
+        "臨床試驗": ["phase 3", "phase ii", "phase i", "臨床", "試驗", "data readout"],
+        "量產": ["量產", "production", "manufacturing", "產能"],
+        "合作": ["合作", "partnership", "collaboration", "alliance"],
+        "產品發布": ["推出", "launch", "release", "新品"],
+        "融資/上市": ["ipo", "listing", "上市", "融資", "fundraising"],
+        "評級調整": ["upgrade", "downgrade", "目標價", "rating", "分析師"],
+    }
+    
+    for event_type, kws in keywords.items():
+        if any(kw in notes_lower for kw in kws):
+            return event_type
+    
+    # Default: check if date is near typical earnings months
     try:
-        catalyst_dt = datetime.strptime(str(catalyst_date_str), "%Y-%m-%d")
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        # Feb, May, Aug, Nov are typical earnings months
+        if dt.month in [2, 5, 8, 11]:
+            return "財報"
+    except ValueError:
+        pass
+    
+    return "重要事件"
+
+
+def get_tradingview_earnings_link(ticker: str) -> str:
+    """Generate TradingView earnings calendar link for a ticker."""
+    return f"https://tw.tradingview.com/symbols/{ticker}/financials-earnings/"
+
+
+def get_investing_earnings_link(ticker: str) -> str:
+    """Generate Investing.com earnings link for a ticker."""
+    return f"https://cn.investing.com/equities/{ticker.lower()}-earnings"
+
+
+def check_event_with_detail(event_date_str: str, event_type: str, notes: str = "") -> Optional[str]:
+    """Check if an event is within 30 days and return formatted string.
+
+    Args:
+        event_date_str: Date in YYYY-MM-DD format.
+        event_type: Event type like '財報', 'FDA批准'.
+        notes: Notes for generating links.
+
+    Returns:
+        Formatted reminder or None if expired.
+    """
+    try:
+        event_dt = datetime.strptime(str(event_date_str), "%Y-%m-%d")
     except ValueError:
         return None
     
     today = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-    delta = (catalyst_dt - today).days
+    delta = (event_dt - today).days
     
     if delta < 0:
-        return None
+        return None  # Expired
     
-    display = event_name if event_name else "催化劑"
+    # Build display with event type
+    display = f"{event_type}"
     
     if 0 <= delta <= 7:
-        return f"🔥 {display}倒數 — {delta} 天後 ({catalyst_date_str})"
+        return f"🔥 {display} — {delta} 天後 ({event_date_str})"
     if delta <= 30:
-        return f"⚡ {display}倒數 — {delta} 天後 ({catalyst_date_str})"
+        return f"⚡ {display} — {delta} 天後 ({event_date_str})"
     return None
 
 
@@ -82,8 +140,6 @@ def build_daily_report(
         "=" * 40,
         "",
     ]
-
-    updated_holdings: List[Dict[str, Any]] = []
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -125,7 +181,6 @@ def build_daily_report(
         if current_price is None:
             report_lines.append(f"{idx}. {ticker} — ⚠️ 無法取得股價")
             report_lines.append("")
-            updated_holdings.append(h)
             continue
 
         pnl_per_share: float = current_price - avg_cost
@@ -159,19 +214,19 @@ def build_daily_report(
             else:
                 report_lines.append(f"   📌 賣出區間: {zone_str}")
 
-        # Show catalysts from Sheet (manually maintained)
+        # Show catalysts with event type
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
-                cat_reminder = check_catalyst_with_detail(cd, "催化劑")
-                if cat_reminder:
-                    report_lines.append(f"   {cat_reminder}")
+                event_type = classify_catalyst(cd, notes)
+                event_reminder = check_event_with_detail(cd, event_type, notes)
+                if event_reminder:
+                    report_lines.append(f"   {event_reminder}")
 
-        # Show notes
         if notes:
             report_lines.append(f"   💬 {notes}")
 
-        # Show news (top 3)
+        # Show news
         if stock_info and stock_info.get("news"):
             for news_item in stock_info["news"][:3]:
                 title = news_item.get("title", "").strip()
@@ -180,13 +235,18 @@ def build_daily_report(
                         title = title[:77] + "..."
                     report_lines.append(f"   📰 {title}")
 
+        # Show earnings calendar links
+        tv_link = get_tradingview_earnings_link(ticker)
+        inv_link = get_investing_earnings_link(ticker)
+        report_lines.append(f"   🔗 [TradingView財報]({tv_link}) | [Investing財報]({inv_link})")
+
         report_lines.append("")
 
     report_lines.append("=" * 40)
     report_lines.append("💡 以上為自動化產生，投資有風險，操作須謹慎。")
 
     report = "\n".join(report_lines)
-    return report, updated_holdings
+    return report, holdings
 
 
 def main() -> None:
@@ -206,7 +266,7 @@ def main() -> None:
         logger.warning("No holdings found.")
         return
 
-    report, updated_holdings = build_daily_report(holdings)
+    report, _ = build_daily_report(holdings)
     print(report)
 
     notifier = LineNotifier()
