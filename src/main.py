@@ -1,9 +1,4 @@
-"""Daily monitoring main entry point.
-
-Loads portfolio config from Google Sheets, fetches latest prices via
-yfinance, runs strategy & catalyst engines, and pushes a structured
-daily report through LINE.
-"""
+"""Daily monitoring main entry point."""
 
 from __future__ import annotations
 
@@ -35,20 +30,6 @@ def fetch_price(ticker: str) -> Optional[float]:
     except Exception as exc:
         logger.error("Failed to fetch price for %s: %s", ticker, exc)
         return None
-
-
-def check_signals(
-    current_price: float,
-    buy_zone: Optional[float],
-    sell_zone: Optional[float],
-) -> List[str]:
-    """Evaluate buy / sell / stop-loss signals."""
-    signals: List[str] = []
-    if buy_zone is not None and current_price <= buy_zone:
-        signals.append(f"\U0001f7e2 \u8cb7\u9032\u8a0a\u865f")
-    if sell_zone is not None and current_price >= sell_zone:
-        signals.append(f"\U0001f534 \u8ce3\u51fa\u8a0a\u865f")
-    return signals
 
 
 def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
@@ -83,16 +64,17 @@ def build_daily_report(
     ]
 
     for idx, h in enumerate(holdings_data, start=1):
-        ticker: str = str(h.get("ticker", "?")).strip().upper()
+        # Support both English and Chinese headers
+        ticker: str = str(h.get("ticker", h.get("\u4ee3\u78bc", "?"))).strip().upper()
         if not ticker:
             continue
 
-        shares: float = float(h.get("shares", 0))
-        avg_cost: float = float(h.get("avgcost", 0))
-        buy_zone_raw = h.get("buyzone", "")
-        sell_zone_raw = h.get("sellzone", "")
-        catalyst_raw = h.get("catalystdate", "")
-        notes: str = str(h.get("notes", "")).strip()
+        shares: float = float(h.get("shares", h.get("\u80a1\u6578", 0)))
+        avg_cost: float = float(h.get("avgcost", h.get("\u5747\u50f9", 0)))
+        buy_zone_raw = h.get("buyzone", h.get("\u8cb7\u9032\u5340\u9593", ""))
+        sell_zone_raw = h.get("sellzone", h.get("\u8ce3\u51fa\u5340\u9593", ""))
+        catalyst_raw = h.get("catalystdate", h.get("\u50ac\u5316\u5287\u65e5\u671f", ""))
+        notes: str = str(h.get("notes", h.get("\u5099\u8a3b", ""))).strip()
 
         buy_zones: List[float] = []
         if buy_zone_raw:

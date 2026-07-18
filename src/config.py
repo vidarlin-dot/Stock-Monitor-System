@@ -1,8 +1,4 @@
-"""Configuration and Google Sheets management module.
-
-Provides GoogleSheetsManager for loading portfolio configuration
-and updating holdings from environment-variable-backed service account auth.
-"""
+"""Configuration and Google Sheets management module."""
 
 from __future__ import annotations
 
@@ -16,12 +12,14 @@ from google.oauth2.service_account import Credentials
 
 logger = logging.getLogger(__name__)
 
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
 
 class GoogleSheetsManager:
-    """Manage portfolio configuration and holdings stored in Google Sheets.
-
-    All sensitive credentials are read from environment variables.
-    """
+    """Manage portfolio configuration and holdings stored in Google Sheets."""
 
     def __init__(self) -> None:
         service_account_json: Optional[str] = None
@@ -31,44 +29,33 @@ class GoogleSheetsManager:
         sheet_name = self._get_env("SHEET_NAME", default="Portfolio")
 
         if not service_account_json:
-            raise ValueError(
-                "Environment variable GCP_SERVICE_ACCOUNT_JSON is not set."
-            )
+            raise ValueError("GCP_SERVICE_ACCOUNT_JSON is not set.")
 
-        # Strip BOM if present
         service_account_json = service_account_json.lstrip("\ufeff")
         creds_dict: Dict[str, Any] = json.loads(service_account_json)
-        credentials = Credentials.from_service_account_info(creds_dict)
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
         self.client: gspread.Client = gspread.authorize(credentials)
         self.sheet_name: str = sheet_name
         self.worksheet: Optional[gspread.Worksheet] = None
 
     def load_config(self) -> Dict[str, Any]:
-        """Load portfolio configuration and current holdings from Google Sheets.
+        """Load holdings from Google Sheets.
 
-        Expected sheet layout::
-
-            Row 1: Header (Ticker, Shares, AvgCost, BuyZone, SellZone, CatalystDate, Notes)
-            Row 2+: Data rows
-
-        Returns:
-            A dictionary with key ``holdings`` (list of dicts).
+        Supports both English and Chinese column headers.
         """
         self.worksheet = self.client.open(self.sheet_name).worksheet("Holdings")
         rows: List[List[Any]] = self.worksheet.get_all_values()
 
         if len(rows) < 2:
-            raise ValueError(
-                f"Sheet has fewer than 2 rows. Expected header + data."
-            )
+            raise ValueError("Sheet has fewer than 2 rows.")
 
-        headers: List[str] = [str(h).strip().lower() for h in rows[0]]
+        headers_raw: List[str] = [str(h).strip() for h in rows[0]]
         holdings: List[Dict[str, Any]] = []
 
         for row in rows[1:]:
             if not any(cell is not None and str(cell).strip() for cell in row):
                 continue
-            record: Dict[str, Any] = dict(zip(headers, row))
+            record: Dict[str, Any] = dict(zip(headers_raw, row))
             holdings.append(record)
 
         logger.info("Loaded %d holding(s) from Google Sheets.", len(holdings))
@@ -80,35 +67,30 @@ class GoogleSheetsManager:
         new_shares: float,
         new_avg_cost: float,
     ) -> None:
-        """Update the share count and average cost for a single ticker.
-
-        Args:
-            ticker: Stock ticker symbol (case-insensitive).
-            new_shares: New total number of shares held.
-            new_avg_cost: New average cost per share.
-
-        Raises:
-            ValueError: If the ticker is not found.
-        """
+        """Update shares and avg cost for a ticker."""
         if self.worksheet is None:
             raise RuntimeError("Call load_config() first.")
 
         rows: List[List[Any]] = self.worksheet.get_all_values()
-        headers: List[str] = [str(h).strip().lower() for h in rows[0]]
+        headers_raw: List[str] = [str(h).strip() for h in rows[0]]
 
-        col_map = {
-            "ticker": "ticker",
-            "shares": "shares",
-            "avgcost": "avgcost",
-            "updated": "updated",
+        # Map English to Chinese headers
+        col_mapping = {
+            "ticker": ["ticker", "代碼"],
+            "shares": ["shares", "股數"],
+            "avgcost": ["avgcost", "均價"],
+            "updated": ["updated", "更新時間"],
         }
+
         idx_map = {}
-        for key, col in col_map.items():
-            if col in headers:
-                idx_map[key] = headers.index(col)
+        for key, possible_names in col_mapping.items():
+            for name in possible_names:
+                if name in headers_raw:
+                    idx_map[key] = headers_raw.index(name)
+                    break
 
         if "ticker" not in idx_map:
-            raise ValueError("'Ticker' column not found.")
+            raise ValueError("Ticker column not found.")
 
         for i, row in enumerate(rows[1:], start=2):
             if str(row[idx_map["ticker"]]).strip().upper() == ticker.upper():
@@ -117,10 +99,8 @@ class GoogleSheetsManager:
                 if "avgcost" in idx_map:
                     self.worksheet.update_cell(i, idx_map["avgcost"] + 1, round(new_avg_cost, 4))
                 if "updated" in idx_map:
-                    self.worksheet.update_cell(
-                        i, idx_map["updated"] + 1, datetime.now().isoformat()
-                    )
-                logger.info("Updated %s → shares=%s, avg_cost=%.4f", ticker, int(new_shares), new_avg_cost)
+                    self.worksheet.update_cell(i, idx_map["updated"] + 1, datetime.now().isoformat())
+                logger.info("Updated %s -> shares=%s, avg_cost=%.4f", ticker, int(new_shares), new_avg_cost)
                 return
 
         raise ValueError(f"Ticker '{ticker}' not found.")
