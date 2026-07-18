@@ -1,0 +1,6 @@
+﻿gspread>=13.0.0
+google-auth>=2.41.0
+yfinance>=0.2.63
+requests>=2.32.0
+python-dateutil>=2.9.0
+pytz>=2025.2
