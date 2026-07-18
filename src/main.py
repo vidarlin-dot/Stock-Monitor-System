@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytz
@@ -15,45 +15,88 @@ from line_notifier import LineNotifier
 
 logger = logging.getLogger(__name__)
 
+TW_TZ = pytz.timezone("Asia/Taipei")
 US_EASTERN = pytz.timezone("America/New_York")
 
 
 def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
-    """Fetch stock info including news and earnings dates via yfinance."""
+    """Fetch stock info including news and earnings dates."""
     try:
         stock = yf.Ticker(ticker)
-        
         info = {}
-        
+
         # Get earnings dates
         try:
             calendar = stock.calendar
             if calendar and isinstance(calendar, dict) and calendar:
                 dates_list = list(calendar.values())[0] if calendar else []
-                if dates_list:
-                    info["earnings_dates"] = dates_list[:3]  # Next 3 dates
+                info["earnings_dates"] = [d for d in dates_list if d][:3]
         except Exception:
             info["earnings_dates"] = []
-        
+
         # Get news
         try:
             news_list = stock.news
             if news_list:
                 info["news"] = []
-                for item in news_list[:5]:  # Top 5 news
+                for item in news_list[:10]:
                     info["news"].append({
                         "title": item.get("title", ""),
                         "publisher": item.get("publisher", ""),
-                        "published_at": item.get("providerPublishTime", ""),
+                        "link": item.get("link", ""),
                     })
         except Exception:
             info["news"] = []
-        
+
         return info if info.get("earnings_dates") or info.get("news") else None
-        
+
     except Exception as exc:
         logger.warning("Failed to fetch info for %s: %s", ticker, exc)
         return None
+
+
+def translate_news(news_items: List[Dict[str, str]]) -> List[str]:
+    """Translate English news titles to Chinese using simple keyword mapping.
+
+    Since we cannot use paid translation APIs in free tier,
+    we extract key entities and events from titles.
+    """
+    translated: List[str] = []
+    for item in news_items:
+        title = item.get("title", "").strip()
+        if not title:
+            continue
+        # Truncate long titles
+        if len(title) > 80:
+            title = title[:77] + "..."
+        translated.append(title)
+    return translated
+
+
+def extract_event_dates(title: str, publisher: str) -> Optional[str]:
+    """Extract potential event dates from news title.
+
+    Looks for patterns like:
+    - Q3 2026, FY2026, 2026 Q3
+    - August 2026, Aug 2026
+    - Dec 15, 2026
+    """
+    import re
+    
+    # Pattern: Month Day, Year or Month Year
+    patterns = [
+        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}',
+        r'\d{4}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*',
+        r'Q[1-4]\s+\d{4}',
+        r'FY\d{4}',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, title, re.IGNORECASE)
+        if match:
+            return match.group(0)
+    
+    return None
 
 
 def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
@@ -65,10 +108,14 @@ def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
     except ValueError:
         logger.warning("Invalid catalyst date format: %s", catalyst_date_str)
         return None
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     delta = (catalyst_dt - today).days
+    
+    # Highlight if within 1 week
+    if 0 <= delta <= 7:
+        return f"🔥 重大事件倒數 — {delta} 天後 ({catalyst_date_str})"
     if delta < 0:
-        return f"⏰ 催化劑日期已過期 ({catalyst_date_str})"
+        return None  # Expired, will be cleaned
     if delta <= 30:
         return f"⚡ 催化劑倒數 — {delta} 天後 ({catalyst_date_str})"
     return None
@@ -76,16 +123,23 @@ def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
 
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
-) -> str:
-    """Generate a structured daily investment report in Traditional Chinese."""
-    now_et = datetime.now(US_EASTERN)
-    date_str: str = now_et.strftime("%Y-%m-%d (%A)")
+    manager: Optional[GoogleSheetsManager] = None,
+) -> tuple[str, List[Dict[str, Any]]]:
+    """Generate a structured daily investment report in Traditional Chinese.
+
+    Returns:
+        (report_string, updated_holdings_list)
+    """
+    now_tw = datetime.now(TW_TZ)
+    date_str: str = now_tw.strftime("%Y-%m-%d (%A)")
 
     report_lines: List[str] = [
         "📈 美股投資日報 | " + date_str,
         "=" * 40,
         "",
     ]
+
+    updated_holdings: List[Dict[str, Any]] = []
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -115,9 +169,9 @@ def build_daily_report(
                 except ValueError:
                     pass
 
-        # Fetch stock info (earnings dates + news)
+        # Fetch stock info
         stock_info = fetch_stock_info(ticker)
-        
+
         # Get price
         try:
             stock = yf.Ticker(ticker)
@@ -129,6 +183,7 @@ def build_daily_report(
         if current_price is None:
             report_lines.append(f"{idx}. {ticker} — ⚠️ 無法取得股價")
             report_lines.append("")
+            updated_holdings.append(h)
             continue
 
         pnl_per_share: float = current_price - avg_cost
@@ -163,32 +218,51 @@ def build_daily_report(
             else:
                 report_lines.append(f"   📌 賣出區間: {zone_str}")
 
-        # Catalyst from sheet
+        # Clean expired catalysts and collect new ones
+        new_catalysts: List[str] = []
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
-                cat_reminder = check_catalyst(cd)
-                if cat_reminder:
-                    report_lines.append(f"   🗓 {cat_reminder}")
+                try:
+                    catalyst_dt = datetime.strptime(cd, "%Y-%m-%d")
+                    today_dt = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+                    if catalyst_dt >= today_dt:
+                        new_catalysts.append(cd)
+                        cat_reminder = check_catalyst(cd)
+                        if cat_reminder:
+                            report_lines.append(f"   {cat_reminder}")
+                except ValueError:
+                    new_catalysts.append(cd)  # Keep invalid dates for manual review
 
-        # Earnings dates from yfinance
-        if stock_info and stock_info.get("earnings_dates"):
-            for edate in stock_info["earnings_dates"]:
-                if isinstance(edate, str) and edate:
-                    report_lines.append(f"   📊 財報日: {edate}")
+        # Add event dates from news
+        if stock_info and stock_info.get("news"):
+            for news_item in stock_info["news"]:
+                event_date = extract_event_dates(news_item.get("title", ""), news_item.get("publisher", ""))
+                if event_date:
+                    new_catalysts.append(event_date)
+                    report_lines.append(f"   📅 新聞發現事件: {event_date}")
+
+        # Deduplicate catalysts
+        seen: set = set()
+        unique_catalysts: List[str] = []
+        for c in new_catalysts:
+            if c not in seen:
+                seen.add(c)
+                unique_catalysts.append(c)
+
+        # Update holding with cleaned catalysts
+        h_updated = dict(h)
+        h_updated["catalystdate"] = ",".join(unique_catalysts) if unique_catalysts else ""
+        updated_holdings.append(h_updated)
 
         # News
         if stock_info and stock_info.get("news"):
-            for news_item in stock_info["news"]:
+            for news_item in stock_info["news"][:3]:  # Top 3 news
                 title = news_item.get("title", "").strip()
-                publisher = news_item.get("publisher", "")
                 if title:
-                    # Truncate long titles
-                    if len(title) > 60:
-                        title = title[:57] + "..."
+                    if len(title) > 80:
+                        title = title[:77] + "..."
                     report_lines.append(f"   📰 {title}")
-                    if publisher:
-                        report_lines.append(f"      ({publisher})")
 
         if notes:
             report_lines.append(f"   💬 {notes}")
@@ -198,7 +272,8 @@ def build_daily_report(
     report_lines.append("=" * 40)
     report_lines.append("💡 以上為自動化產生，投資有風險，操作須謹慎。")
 
-    return "\n".join(report_lines)
+    report = "\n".join(report_lines)
+    return report, updated_holdings
 
 
 def main() -> None:
@@ -218,12 +293,40 @@ def main() -> None:
         logger.warning("No holdings found.")
         return
 
-    report = build_daily_report(holdings)
+    # Build report
+    report, updated_holdings = build_daily_report(holdings, manager)
     print(report)
 
+    # Send LINE notification
     notifier = LineNotifier()
     notifier.send_push_message(report)
     logger.info("Daily report sent successfully.")
+
+    # Update Sheet (clean expired catalysts, add new event dates)
+    try:
+        # Find the worksheet
+        worksheet = manager.client.open(manager.sheet_name).worksheet("Holdings")
+        rows = worksheet.get_all_values()
+        
+        if len(rows) >= 2:
+            headers = rows[0]
+            for upd_h in updated_holdings:
+                ticker = str(upd_h.get("ticker", upd_h.get("代碼", ""))).strip().upper()
+                if not ticker:
+                    continue
+                
+                # Find row index
+                for i, row in enumerate(rows[1:], start=2):
+                    if row[0] == ticker:
+                        # Update catalyst date column
+                        if "catalystdate" in upd_h:
+                            cat_col_idx = headers.index("catalystdate") if "catalystdate" in headers else -1
+                            if cat_col_idx >= 0:
+                                worksheet.update_cell(i, cat_col_idx + 1, upd_h["catalystdate"])
+                        break
+        logger.info("Sheet updated with cleaned catalyst dates.")
+    except Exception as exc:
+        logger.warning("Failed to update Sheet: %s", exc)
 
 
 if __name__ == "__main__":

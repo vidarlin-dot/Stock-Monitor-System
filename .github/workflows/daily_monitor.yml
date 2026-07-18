@@ -2,7 +2,8 @@ name: Daily Stock Monitor
 
 on:
   schedule:
-    - cron: "5 21 * * 1-5"
+    # Taiwan time 22:00 = UTC 14:00, Mon-Fri
+    - cron: "0 14 * * 1-5"
   workflow_dispatch:
 
 jobs:
