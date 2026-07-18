@@ -1,4 +1,4 @@
-﻿"""Daily monitoring main entry point.
+"""Daily monitoring main entry point.
 
 Loads portfolio config from a local JSON file, fetches latest prices via
 yfinance, runs strategy & catalyst engines, and pushes a structured
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pytz
@@ -20,7 +20,6 @@ from line_notifier import LineNotifier
 
 logger = logging.getLogger(__name__)
 
-# US market timezone for date-aware calculations
 US_EASTERN = pytz.timezone("America/New_York")
 
 
@@ -40,7 +39,7 @@ def fetch_price(ticker: str) -> Optional[float]:
             logger.warning("No price data for %s", ticker)
             return None
         return float(hist["Close"].iloc[-1])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error("Failed to fetch price for %s: %s", ticker, exc)
         return None
 
@@ -63,10 +62,14 @@ def check_signals(
     signals: List[str] = []
 
     if buy_zone is not None and current_price <= buy_zone:
-        signals.append(f"🟢 買進訊號 — 當前價格 ${current_price:.2f} ≤ 買進區間 ${buy_zone:.2f}")
+        signals.append(
+            f"\U0001f7e2 \u8cb7\u9032\u8a0a\u865f \u2014 \u7576\u524d\u50f9\u683c ${current_price:.2f} \u2264 \u8cb7\u9032\u5340\u9593 ${buy_zone:.2f}"
+        )
 
     if sell_zone is not None and current_price >= sell_zone:
-        signals.append(f"🔴 賣出訊號 — 當前價格 ${current_price:.2f} ≥ 賣出區間 ${sell_zone:.2f}")
+        signals.append(
+            f"\U0001f534 \u8ce3\u51fa\u8a0a\u865f \u2014 \u7576\u524d\u50f9\u683c ${current_price:.2f} \u2265 \u8ce3\u51fa\u5340\u9593 ${sell_zone:.2f}"
+        )
 
     return signals
 
@@ -89,13 +92,14 @@ def check_catalyst(catalyst_date_str: Optional[str]) -> Optional[str]:
         logger.warning("Invalid catalyst date format: %s", catalyst_date_str)
         return None
 
-    today = datetime.now(US_EASTERN).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Both are naive datetime objects (no timezone info)
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     delta = (catalyst_dt - today).days
 
     if delta < 0:
-        return f"⏰ 催化劑日期已過期 ({catalyst_date_str})"
+        return f"\U0001f570\ufe0f \u50ac\u5316\u5287\u65e5\u671f\u5df2\u904e\u671f ({catalyst_date_str})"
     if delta <= 30:
-        return f"⚡ 催化劑倒數 — {delta} 天後 ({catalyst_date_str})"
+        return f"\u26a1 \u50ac\u5316\u5287\u5012\u6578 \u2014 {delta} \u5929\u5f8c ({catalyst_date_str})"
     return None
 
 
@@ -114,7 +118,7 @@ def build_daily_report(
     date_str: str = now_et.strftime("%Y-%m-%d (%A)")
 
     report_lines: List[str] = [
-        f"📈 美股投資日報 | {date_str}",
+        f"\U0001f4c8 \u7f8e\u80a1\u6295\u8cc7\u65e5\u5831 | {date_str}",
         "=" * 40,
         "",
     ]
@@ -131,7 +135,6 @@ def build_daily_report(
         catalyst_raw = h.get("catalyst_date", "")
         notes: str = str(h.get("notes", "")).strip()
 
-        # Support comma-separated values for buy/sell zones and catalyst dates
         buy_zones: List[float] = []
         if buy_zone_raw:
             for bz in buy_zone_raw.split(","):
@@ -150,7 +153,7 @@ def build_daily_report(
 
         current_price = fetch_price(ticker)
         if current_price is None:
-            report_lines.append(f"{idx}. {ticker} — ⚠️ 無法取得股價")
+            report_lines.append(f"{idx}. {ticker} \u2014 \u26a0\ufe0f \u7121\u6cd5\u53d6\u5f97\u80a1\u50f9")
             report_lines.append("")
             continue
 
@@ -158,50 +161,47 @@ def build_daily_report(
         pnl_pct: float = (pnl_per_share / avg_cost * 100) if avg_cost > 0 else 0.0
         total_pnl: float = pnl_per_share * shares
 
-        # Emoji based on P&L
         if pnl_pct >= 5:
-            emoji = "🟢"
+            emoji = "\U0001f7e2"
         elif pnl_pct >= 0:
-            emoji = "🟡"
+            emoji = "\U0001f7e1"
         else:
-            emoji = "🔴"
+            emoji = "\U0001f534"
 
         report_lines.append(f"{idx}. {emoji} {ticker}")
-        report_lines.append(f"   當前價格: ${current_price:.2f} | 均價: ${avg_cost:.4f}")
+        report_lines.append(f"   \u7576\u524d\u50f9\u683c: ${current_price:.2f} | \u5747\u50f9: ${avg_cost:.4f}")
         report_lines.append(
-            f"   持倉: {int(shares)} 股 | 損益: ${total_pnl:+,.2f} ({pnl_pct:+.2f}%)"
+            f"   \u6301\u4ec6: {int(shares)} \u80a1 | \u64ca\u76ca: ${total_pnl:+,.2f} ({pnl_pct:+.2f}%)"
         )
 
-        # Signals — show all buy/sell zones
         if buy_zones:
             zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
             if current_price <= buy_zones[0]:
-                report_lines.append(f"   🟢 買進訊號 — 當前價格 ${current_price:.2f} ≤ 買進區間 [{zone_str}]")
+                report_lines.append(f"   \U0001f7e2 \u8cb7\u9032\u8a0a\u865f \u2014 \u7576\u524d\u50f9\u683c ${current_price:.2f} \u2264 \u8cb7\u9032\u5340\u9593 [{zone_str}]")
             else:
-                report_lines.append(f"   📌 買進區間: {zone_str}")
+                report_lines.append(f"   \U0001f4cc \u8cb7\u9032\u5340\u9593: {zone_str}")
 
         if sell_zones:
             zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
             if current_price >= sell_zones[0]:
-                report_lines.append(f"   🔴 賣出訊號 — 當前價格 ${current_price:.2f} ≥ 賣出區間 [{zone_str}]")
+                report_lines.append(f"   \U0001f534 \u8ce3\u51fa\u8a0a\u865f \u2014 \u7576\u524d\u50f9\u683c ${current_price:.2f} \u2265 \u8ce3\u51fa\u5340\u9593 [{zone_str}]")
             else:
-                report_lines.append(f"   📌 賣出區間: {zone_str}")
+                report_lines.append(f"   \U0001f4cc \u8ce3\u51fa\u5340\u9593: {zone_str}")
 
-        # Catalyst
         if catalyst_raw:
             dates = [d.strip() for d in catalyst_raw.split(",") if d.strip()]
             for cd in dates:
                 cat_reminder = check_catalyst(cd)
                 if cat_reminder:
-                    report_lines.append(f"   🗓 {cat_reminder}")
+                    report_lines.append(f"   \U0001f333 {cat_reminder}")
 
         if notes:
-            report_lines.append(f"   💬 {notes}")
+            report_lines.append(f"   \U0001f4ac {notes}")
 
         report_lines.append("")
 
     report_lines.append("=" * 40)
-    report_lines.append("💡 以上為自動化產生，投資有風險，操作須謹慎。")
+    report_lines.append("\U0001f4a1 \u4ee5\u4e0a\u70ba\u81ea\u52d5\u5316\u7522\u751f\uff0c\u6295\u8cc7\u6709\u98a8\u96aa\uff0c\u64cd\u4f5c\u9808\u8b18\u614e\u3002")
 
     return "\n".join(report_lines)
 
@@ -213,9 +213,8 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    logger.info("Stock Monitor — Daily Report starting…")
+    logger.info("Stock Monitor \u2014 Daily Report starting\u2026")
 
-    # Load holdings from local JSON
     manager = PortfolioManager()
     holdings = manager.load_holdings()
 
@@ -223,7 +222,6 @@ def main() -> None:
         logger.warning("No holdings found. Nothing to report.")
         return
 
-    # Build & send report
     report = build_daily_report(holdings)
     print(report)
 
