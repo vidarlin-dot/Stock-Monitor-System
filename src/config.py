@@ -1,92 +1,94 @@
-﻿"""Configuration and Google Sheets management module.
+﻿"""Configuration and portfolio management module.
 
-Provides GoogleSheetsManager for loading portfolio configuration
-and updating holdings from environment-variable-backed service account auth.
+Provides PortfolioManager for loading/saving holdings from a local JSON file.
+No cloud dependencies required.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-import gspread
-from google.oauth2.service_account import Credentials
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
 
-class GoogleSheetsManager:
-    """Manage portfolio configuration and holdings stored in Google Sheets.
 
-    All sensitive credentials are read from environment variables; nothing
-    is hard-coded.
+class PortfolioManager:
+    """Manage portfolio holdings stored in a local JSON file.
+
+    All paths are resolved relative to this module, so no environment
+    variables are required for credentials.
     """
 
-    def __init__(self) -> None:  # noqa: D401
-        service_account_json: Optional[str] = None
-        sheet_name: Optional[str] = None
+    def __init__(self, data_dir: Optional[Path] = None) -> None:
+        """Initialize PortfolioManager.
 
-        service_account_json = self._get_env("GCP_SERVICE_ACCOUNT_JSON")
-        sheet_name = self._get_env("SHEET_NAME", default="Portfolio")
+        Args:
+            data_dir: Directory containing ``portfolio.json``.
+                Defaults to ``data/`` next to this module.
+        """
+        self.data_dir: Path = data_dir or DEFAULT_DATA_DIR
+        self.portfolio_path: Path = self.data_dir / "portfolio.json"
+        self._ensure_file()
 
-        if not service_account_json:
-            raise ValueError(
-                "Environment variable GCP_SERVICE_ACCOUNT_JSON is not set. "
-                "Provide the GCP service-account JSON key as a string."
+    def _ensure_file(self) -> None:
+        """Create portfolio.json with sample data if it does not exist."""
+        if not self.portfolio_path.exists():
+            logger.info(
+                "Portfolio file not found at %s. Creating with sample data.",
+                self.portfolio_path,
+            )
+            sample: List[Dict[str, Any]] = [
+                {
+                    "ticker": "AAPL",
+                    "shares": 100,
+                    "avg_cost": 150.00,
+                    "buy_zone": 140.00,
+                    "sell_zone": 180.00,
+                    "catalyst_date": "2026-09-15",
+                    "notes": "Q3 earnings",
+                },
+            ]
+            self.portfolio_path.write_text(
+                json.dumps(sample, indent=2, ensure_ascii=False),
+                encoding="utf-8",
             )
 
-        creds_dict: Dict[str, Any] = json.loads(service_account_json)
-        credentials = Credentials.from_service_account_info(creds_dict)
-        self.client: gspread.Client = gspread.authorize(credentials)
-        self.sheet_name: str = sheet_name
-        self.worksheet: Optional[gspread.Worksheet] = None
-
-    # ------------------------------------------------------------------
-    # Public helpers
-    # ------------------------------------------------------------------
-
-    def load_config(self) -> Dict[str, Any]:
-        """Load portfolio configuration and current holdings from Google Sheets.
-
-        Expected sheet layout::
-
-            Row 1: Header (Ticker, Shares, AvgCost, BuyZone, SellZone, CatalystDate, Notes)
-            Row 2+: Data rows
+    def load_holdings(self) -> List[Dict[str, Any]]:
+        """Load all holdings from the JSON file.
 
         Returns:
-            A dictionary with keys ``holdings`` (list of dicts) and
-            ``config`` (dict of metadata).
+            A list of holding dictionaries. Each dict contains keys like
+            ``ticker``, ``shares``, ``avg_cost``, ``buy_zone``,
+            ``sell_zone``, ``catalyst_date``, and ``notes``.
         """
-        self.worksheet = self.client.open(self.sheet_name).worksheet("Holdings")
-        rows: List[List[Any]] = self.worksheet.get_all_values()
+        raw: str = self.portfolio_path.read_text(encoding="utf-8")
+        holdings: List[Dict[str, Any]] = json.loads(raw)
+        logger.info("Loaded %d holding(s) from %s.", len(holdings), self.portfolio_path)
+        return holdings
 
-        if len(rows) < 2:
-            raise ValueError(
-                f"Sheet '{self.sheet_name}' has fewer than 2 rows. "
-                "Expected a header row plus at least one data row."
-            )
+    def save_holdings(self, holdings: List[Dict[str, Any]]) -> None:
+        """Overwrite the portfolio file with updated holdings.
 
-        headers: List[str] = [str(h).strip().lower() for h in rows[0]]
-        holdings: List[Dict[str, Any]] = []
+        Args:
+            holdings: Full list of holdings to persist.
+        """
+        self.portfolio_path.write_text(
+            json.dumps(holdings, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("Saved %d holding(s) to %s.", len(holdings), self.portfolio_path)
 
-        for row in rows[1:]:
-            if not any(cell is not None and str(cell).strip() for cell in row):
-                continue  # skip empty rows
-            record: Dict[str, Any] = dict(zip(headers, row))
-            holdings.append(record)
-
-        logger.info("Loaded %d holding(s) from Google Sheets.", len(holdings))
-        return {"holdings": holdings, "config": {"sheet_name": self.sheet_name}}
-
-    def update_holdings(
+    def update_holding(
         self,
         ticker: str,
         new_shares: float,
         new_avg_cost: float,
     ) -> None:
-        """Update the share count and average cost for a single ticker.
+        """Update shares and average cost for a single ticker.
 
         Args:
             ticker: Stock ticker symbol (case-insensitive).
@@ -94,64 +96,21 @@ class GoogleSheetsManager:
             new_avg_cost: New average cost per share.
 
         Raises:
-            ValueError: If the ticker is not found in the sheet.
+            ValueError: If the ticker is not found.
         """
-        if self.worksheet is None:
-            raise RuntimeError(
-                "No worksheet loaded. Call load_config() first."
-            )
+        holdings: List[Dict[str, Any]] = self.load_holdings()
 
-        rows: List[List[Any]] = self.worksheet.get_all_values()
-        headers: List[str] = [str(h).strip().lower() for h in rows[0]]
-
-        if "ticker" not in headers:
-            raise ValueError("Expected 'Ticker' column not found in the sheet.")
-
-        ticker_idx: int = headers.index("ticker")
-        shares_idx: int = headers.index("shares") if "shares" in headers else -1
-        avgcost_idx: int = (
-            headers.index("avgcost") if "avgcost" in headers else -1
-        )
-
-        found: bool = False
-        for i, row in enumerate(rows[1:], start=2):  # 1-based row index
-            if str(row[ticker_idx]).strip().upper() == ticker.upper():
-                if shares_idx >= 0:
-                    self.worksheet.update_cell(i, shares_idx + 1, int(new_shares))
-                if avgcost_idx >= 0:
-                    self.worksheet.update_cell(i, avgcost_idx + 1, round(new_avg_cost, 4))
-                # Also update timestamp
-                ts_idx = (
-                    headers.index("updated")
-                    if "updated" in headers
-                    else -1
-                )
-                if ts_idx >= 0:
-                    self.worksheet.update_cell(
-                        i, ts_idx + 1, datetime.now().isoformat()
-                    )
-                found = True
+        for h in holdings:
+            if str(h.get("ticker", "")).strip().upper() == ticker.upper():
+                h["shares"] = int(new_shares)
+                h["avg_cost"] = round(new_avg_cost, 4)
+                self.save_holdings(holdings)
                 logger.info(
                     "Updated %s → shares=%s, avg_cost=%.4f",
                     ticker,
                     int(new_shares),
                     new_avg_cost,
                 )
-                break
+                return
 
-        if not found:
-            raise ValueError(f"Ticker '{ticker}' not found in the sheet.")
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _get_env(name: str, default: str = "") -> Optional[str]:
-        """Read an environment variable, falling back to *default*."""
-        import os
-
-        val: Optional[str] = os.environ.get(name)
-        if val is None or val.strip() == "":
-            return default if default else None
-        return val.strip()
+        raise ValueError(f"Ticker '{ticker}' not found in portfolio.")
