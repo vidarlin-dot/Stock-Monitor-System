@@ -46,19 +46,102 @@ def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def classify_catalyst(date_str: str, notes: str = "") -> str:
-    """Classify a catalyst date into an event type based on notes.
+def translate_news_to_chinese(title: str, publisher: str = "") -> str:
+    """Translate English news title to Traditional Chinese summary.
 
-    Args:
-        date_str: The date string.
-        notes: The notes field from the sheet.
-
-    Returns:
-        Event type like '財報', 'FDA批准', '臨床試驗', etc.
+    Uses keyword mapping and pattern matching to produce a concise
+    Chinese summary.
     """
+    title_lower = title.lower()
+    
+    # Translation keyword map
+    translations = {
+        "earnings": "財報",
+        "revenue": "營收",
+        "profit": "獲利",
+        "loss": "虧損",
+        "beat": "超越",
+        "miss": "低於",
+        "expect": "預期",
+        "guidance": "展望",
+        "raise": "上調",
+        "cut": "下調",
+        "upgrade": "上調評級",
+        "downgrade": "下調評級",
+        "approval": "批准",
+        "fda": "FDA",
+        "phase 3": "三期臨床",
+        "phase ii": "二期臨床",
+        "phase i": "一期臨床",
+        "trial": "試驗",
+        "results": "結果",
+        "positive": "正面",
+        "negative": "負面",
+        "launch": "推出",
+        "product": "產品",
+        "partnership": "合作",
+        "acquisition": "收購",
+        "buyback": "回購",
+        "dividend": "配息",
+        "increase": "增加",
+        "decrease": "減少",
+        "growth": "成長",
+        "demand": "需求",
+        "supply": "供應",
+        "chip": "晶片",
+        "ai": "人工智慧",
+        "quantum": "量子",
+        "drug": "藥物",
+        "cancer": "癌症",
+        "obesity": "肥胖",
+        "diabetes": "糖尿病",
+        "cardiovascular": "心血管",
+        "record": "創紀錄",
+        "strong": "強勁",
+        "weak": "疲弱",
+        "solid": "穩健",
+        "robust": "強勁",
+        "surge": "飆升",
+        "plunge": "暴跌",
+        "rally": "反彈",
+        "pullback": "回調",
+        "volatility": "波動",
+        "risk": "風險",
+        "opportunity": "機會",
+        "challenge": "挑戰",
+        "momentum": "動能",
+        "tailwind": "助力",
+        "headwind": "逆風",
+    }
+    
+    # Build Chinese summary by replacing keywords
+    chinese_parts: List[str] = []
+    remaining = title
+    
+    for en_word, zh_word in sorted(translations.items(), key=lambda x: -len(x[0])):
+        if en_word in remaining.lower():
+            chinese_parts.append(zh_word)
+            remaining = re.sub(re.escape(en_word), "", remaining, flags=re.IGNORECASE).strip()
+    
+    # Clean up remaining text
+    remaining = re.sub(r'[^\w\s\-]', '', remaining).strip()
+    
+    # Combine parts
+    if chinese_parts:
+        summary = " ".join(chinese_parts)
+        if remaining and len(remaining) < 50:
+            summary += f"：{remaining}"
+        return summary
+    else:
+        # Fallback: just clean up the title
+        cleaned = re.sub(r'[^\w\s\-]', '', remaining).strip()
+        return cleaned[:60] if len(cleaned) > 60 else cleaned
+
+
+def classify_catalyst(date_str: str, notes: str = "") -> str:
+    """Classify a catalyst date into an event type."""
     notes_lower = notes.lower() if notes else ""
     
-    # Keywords to detect event types
     keywords = {
         "財報": ["財報", "earnings", "quarterly", "q1", "q2", "q3", "q4", "季報", "年報"],
         "FDA批准": ["fda", "批准", "認證", "regulatory", "nda", "bla"],
@@ -74,10 +157,8 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
         if any(kw in notes_lower for kw in kws):
             return event_type
     
-    # Default: check if date is near typical earnings months
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d")
-        # Feb, May, Aug, Nov are typical earnings months
         if dt.month in [2, 5, 8, 11]:
             return "財報"
     except ValueError:
@@ -86,27 +167,8 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
     return "重要事件"
 
 
-def get_tradingview_earnings_link(ticker: str) -> str:
-    """Generate TradingView earnings calendar link for a ticker."""
-    return f"https://tw.tradingview.com/symbols/{ticker}/financials-earnings/"
-
-
-def get_investing_earnings_link(ticker: str) -> str:
-    """Generate Investing.com earnings link for a ticker."""
-    return f"https://cn.investing.com/equities/{ticker.lower()}-earnings"
-
-
-def check_event_with_detail(event_date_str: str, event_type: str, notes: str = "") -> Optional[str]:
-    """Check if an event is within 30 days and return formatted string.
-
-    Args:
-        event_date_str: Date in YYYY-MM-DD format.
-        event_type: Event type like '財報', 'FDA批准'.
-        notes: Notes for generating links.
-
-    Returns:
-        Formatted reminder or None if expired.
-    """
+def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[str]:
+    """Check if an event is within 30 days and return formatted string."""
     try:
         event_dt = datetime.strptime(str(event_date_str), "%Y-%m-%d")
     except ValueError:
@@ -116,10 +178,9 @@ def check_event_with_detail(event_date_str: str, event_type: str, notes: str = "
     delta = (event_dt - today).days
     
     if delta < 0:
-        return None  # Expired
+        return None
     
-    # Build display with event type
-    display = f"{event_type}"
+    display = event_type
     
     if 0 <= delta <= 7:
         return f"🔥 {display} — {delta} 天後 ({event_date_str})"
@@ -219,26 +280,22 @@ def build_daily_report(
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
                 event_type = classify_catalyst(cd, notes)
-                event_reminder = check_event_with_detail(cd, event_type, notes)
+                event_reminder = check_event_with_detail(cd, event_type)
                 if event_reminder:
                     report_lines.append(f"   {event_reminder}")
 
         if notes:
             report_lines.append(f"   💬 {notes}")
 
-        # Show news
+        # Show translated news
         if stock_info and stock_info.get("news"):
             for news_item in stock_info["news"][:3]:
                 title = news_item.get("title", "").strip()
+                publisher = news_item.get("publisher", "")
                 if title:
-                    if len(title) > 80:
-                        title = title[:77] + "..."
-                    report_lines.append(f"   📰 {title}")
-
-        # Show earnings calendar links
-        tv_link = get_tradingview_earnings_link(ticker)
-        inv_link = get_investing_earnings_link(ticker)
-        report_lines.append(f"   🔗 [TradingView財報]({tv_link}) | [Investing財報]({inv_link})")
+                    chinese_summary = translate_news_to_chinese(title, publisher)
+                    if chinese_summary:
+                        report_lines.append(f"   📰 {chinese_summary}")
 
         report_lines.append("")
 
