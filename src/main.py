@@ -1,6 +1,6 @@
 ﻿"""Daily monitoring main entry point.
 
-Loads portfolio config from Google Sheets, fetches latest prices via
+Loads portfolio config from a local JSON file, fetches latest prices via
 yfinance, runs strategy & catalyst engines, and pushes a structured
 daily report through LINE.
 """
@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 import pytz
 import yfinance as yf
 
-from config import GoogleSheetsManager
+from config import PortfolioManager
 from line_notifier import LineNotifier
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,6 @@ def check_signals(
     if sell_zone is not None and current_price >= sell_zone:
         signals.append(f"🔴 賣出訊號 — 當前價格 ${current_price:.2f} ≥ 賣出區間 ${sell_zone:.2f}")
 
-    # Stop-loss: if price drops below 80 % of avg cost
     return signals
 
 
@@ -106,7 +105,7 @@ def build_daily_report(
     """Generate a structured daily investment report in Traditional Chinese.
 
     Args:
-        holdings_data: List of holding dicts from Google Sheets.
+        holdings_data: List of holding dicts from the local JSON file.
 
     Returns:
         A formatted report string suitable for LINE push notification.
@@ -126,14 +125,28 @@ def build_daily_report(
             continue
 
         shares: float = float(h.get("shares", 0))
-        avg_cost: float = float(h.get("avgcost", 0))
-        buy_zone_raw = h.get("buyzone", "")
-        sell_zone_raw = h.get("sellzone", "")
-        catalyst_raw = h.get("catalystdate", "")
+        avg_cost: float = float(h.get("avg_cost", 0))
+        buy_zone_raw = h.get("buy_zone", "")
+        sell_zone_raw = h.get("sell_zone", "")
+        catalyst_raw = h.get("catalyst_date", "")
         notes: str = str(h.get("notes", "")).strip()
 
-        buy_zone: Optional[float] = float(buy_zone_raw) if buy_zone_raw else None
-        sell_zone: Optional[float] = float(sell_zone_raw) if sell_zone_raw else None
+        # Support comma-separated values for buy/sell zones and catalyst dates
+        buy_zones: List[float] = []
+        if buy_zone_raw:
+            for bz in buy_zone_raw.split(","):
+                try:
+                    buy_zones.append(float(bz.strip()))
+                except ValueError:
+                    pass
+
+        sell_zones: List[float] = []
+        if sell_zone_raw:
+            for sz in sell_zone_raw.split(","):
+                try:
+                    sell_zones.append(float(sz.strip()))
+                except ValueError:
+                    pass
 
         current_price = fetch_price(ticker)
         if current_price is None:
@@ -159,16 +172,28 @@ def build_daily_report(
             f"   持倉: {int(shares)} 股 | 損益: ${total_pnl:+,.2f} ({pnl_pct:+.2f}%)"
         )
 
-        # Signals
-        signals = check_signals(current_price, buy_zone, sell_zone)
-        if signals:
-            for sig in signals:
-                report_lines.append(f"   📌 {sig}")
+        # Signals — show all buy/sell zones
+        if buy_zones:
+            zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
+            if current_price <= buy_zones[0]:
+                report_lines.append(f"   🟢 買進訊號 — 當前價格 ${current_price:.2f} ≤ 買進區間 [{zone_str}]")
+            else:
+                report_lines.append(f"   📌 買進區間: {zone_str}")
+
+        if sell_zones:
+            zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
+            if current_price >= sell_zones[0]:
+                report_lines.append(f"   🔴 賣出訊號 — 當前價格 ${current_price:.2f} ≥ 賣出區間 [{zone_str}]")
+            else:
+                report_lines.append(f"   📌 賣出區間: {zone_str}")
 
         # Catalyst
-        cat_reminder = check_catalyst(catalyst_raw)
-        if cat_reminder:
-            report_lines.append(f"   🗓 {cat_reminder}")
+        if catalyst_raw:
+            dates = [d.strip() for d in catalyst_raw.split(",") if d.strip()]
+            for cd in dates:
+                cat_reminder = check_catalyst(cd)
+                if cat_reminder:
+                    report_lines.append(f"   🗓 {cat_reminder}")
 
         if notes:
             report_lines.append(f"   💬 {notes}")
@@ -190,10 +215,9 @@ def main() -> None:
 
     logger.info("Stock Monitor — Daily Report starting…")
 
-    # Load holdings
-    manager = GoogleSheetsManager()
-    data = manager.load_config()
-    holdings = data["holdings"]
+    # Load holdings from local JSON
+    manager = PortfolioManager()
+    holdings = manager.load_holdings()
 
     if not holdings:
         logger.warning("No holdings found. Nothing to report.")
