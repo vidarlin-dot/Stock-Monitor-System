@@ -159,16 +159,12 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
 
 
 def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[str]:
-    """Check if an event is within 30 days and return formatted string.
-    
-    All datetime objects are naive (no timezone) to avoid comparison errors.
-    """
+    """Check if an event is within 30 days and return formatted string."""
     try:
         event_dt = datetime.strptime(str(event_date_str), "%Y-%m-%d")
     except ValueError:
         return None
     
-    # Use naive datetime for both
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     delta = (event_dt - today).days
     
@@ -186,7 +182,7 @@ def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[st
 
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
-) -> tuple[str, List[Dict[str, Any]]]:
+) -> str:
     """Generate a structured daily investment report in Traditional Chinese."""
     now_tw = datetime.now(TW_TZ)
     date_str: str = now_tw.strftime("%Y-%m-%d (%A)")
@@ -297,8 +293,7 @@ def build_daily_report(
     report_lines.append("=" * 40)
     report_lines.append("💡 以上為自動化產生，投資有風險，操作須謹慎。")
 
-    report = "\n".join(report_lines)
-    return report, holdings
+    return "\n".join(report_lines)
 
 
 def main() -> None:
@@ -318,7 +313,7 @@ def main() -> None:
         logger.warning("No holdings found.")
         return
 
-    report, _ = build_daily_report(holdings)
+    report = build_daily_report(holdings)
     print(report)
 
     notifier = LineNotifier()
