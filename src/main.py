@@ -18,17 +18,41 @@ logger = logging.getLogger(__name__)
 US_EASTERN = pytz.timezone("America/New_York")
 
 
-def fetch_price(ticker: str) -> Optional[float]:
-    """Fetch the latest closing price for a ticker via yfinance."""
+def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
+    """Fetch stock info including news and earnings dates via yfinance."""
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="5d")
-        if hist.empty:
-            logger.warning("No price data for %s", ticker)
-            return None
-        return float(hist["Close"].iloc[-1])
+        
+        info = {}
+        
+        # Get earnings dates
+        try:
+            calendar = stock.calendar
+            if calendar and isinstance(calendar, dict) and calendar:
+                dates_list = list(calendar.values())[0] if calendar else []
+                if dates_list:
+                    info["earnings_dates"] = dates_list[:3]  # Next 3 dates
+        except Exception:
+            info["earnings_dates"] = []
+        
+        # Get news
+        try:
+            news_list = stock.news
+            if news_list:
+                info["news"] = []
+                for item in news_list[:5]:  # Top 5 news
+                    info["news"].append({
+                        "title": item.get("title", ""),
+                        "publisher": item.get("publisher", ""),
+                        "published_at": item.get("providerPublishTime", ""),
+                    })
+        except Exception:
+            info["news"] = []
+        
+        return info if info.get("earnings_dates") or info.get("news") else None
+        
     except Exception as exc:
-        logger.error("Failed to fetch price for %s: %s", ticker, exc)
+        logger.warning("Failed to fetch info for %s: %s", ticker, exc)
         return None
 
 
@@ -91,7 +115,17 @@ def build_daily_report(
                 except ValueError:
                     pass
 
-        current_price = fetch_price(ticker)
+        # Fetch stock info (earnings dates + news)
+        stock_info = fetch_stock_info(ticker)
+        
+        # Get price
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="5d")
+            current_price = float(hist["Close"].iloc[-1]) if not hist.empty else None
+        except Exception:
+            current_price = None
+
         if current_price is None:
             report_lines.append(f"{idx}. {ticker} — ⚠️ 無法取得股價")
             report_lines.append("")
@@ -114,6 +148,7 @@ def build_daily_report(
             f"   持倉: {int(shares)} 股 | 損益: ${total_pnl:+,.2f} ({pnl_pct:+.2f}%)"
         )
 
+        # Buy/Sell signals
         if buy_zones:
             zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
             if current_price <= buy_zones[0]:
@@ -128,12 +163,32 @@ def build_daily_report(
             else:
                 report_lines.append(f"   📌 賣出區間: {zone_str}")
 
+        # Catalyst from sheet
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
                 cat_reminder = check_catalyst(cd)
                 if cat_reminder:
                     report_lines.append(f"   🗓 {cat_reminder}")
+
+        # Earnings dates from yfinance
+        if stock_info and stock_info.get("earnings_dates"):
+            for edate in stock_info["earnings_dates"]:
+                if isinstance(edate, str) and edate:
+                    report_lines.append(f"   📊 財報日: {edate}")
+
+        # News
+        if stock_info and stock_info.get("news"):
+            for news_item in stock_info["news"]:
+                title = news_item.get("title", "").strip()
+                publisher = news_item.get("publisher", "")
+                if title:
+                    # Truncate long titles
+                    if len(title) > 60:
+                        title = title[:57] + "..."
+                    report_lines.append(f"   📰 {title}")
+                    if publisher:
+                        report_lines.append(f"      ({publisher})")
 
         if notes:
             report_lines.append(f"   💬 {notes}")
