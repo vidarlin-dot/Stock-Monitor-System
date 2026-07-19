@@ -17,7 +17,6 @@ from line_notifier import LineNotifier
 logger = logging.getLogger(__name__)
 
 TW_TZ = pytz.timezone("Asia/Taipei")
-US_EASTERN = pytz.timezone("America/New_York")
 
 
 def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
@@ -46,7 +45,7 @@ def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def translate_news_to_chinese(title: str, publisher: str = "") -> str:
+def translate_news_to_chinese(title: str) -> str:
     """Translate English news title to Traditional Chinese summary."""
     title_lower = title.lower()
     
@@ -84,7 +83,7 @@ def translate_news_to_chinese(title: str, publisher: str = "") -> str:
         "demand": "需求",
         "supply": "供應",
         "chip": "晶片",
-        "ai": "人工智慧",
+        "ai": "AI",
         "quantum": "量子",
         "drug": "藥物",
         "cancer": "癌症",
@@ -159,12 +158,7 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
 
 
 def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[str]:
-    """Check if an event is within 30 days and return formatted string.
-    
-    Uses colored icons:
-    - <= 7 days: red alarm clock (urgent)
-    - <= 30 days: blue/grey calendar (reminder)
-    """
+    """Check if an event is within 30 days and return formatted string."""
     try:
         event_dt = datetime.strptime(str(event_date_str), "%Y-%m-%d")
     except ValueError:
@@ -185,23 +179,53 @@ def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[st
     return None
 
 
+def get_event_description(ticker: str, catalyst_raw: str, notes: str, news: List[Dict]) -> str:
+    """Build a detailed event description from multiple sources.
+    
+    Returns a concise Chinese description of upcoming events.
+    """
+    descriptions: List[str] = []
+    
+    # From notes field (user-defined)
+    if notes and notes not in ("見備註", "see notes", "(見備註)"):
+        descriptions.append(notes)
+    
+    # From news headlines
+    if news:
+        for news_item in news[:3]:
+            title = news_item.get("title", "").strip()
+            if title:
+                chinese_summary = translate_news_to_chinese(title)
+                if chinese_summary and chinese_summary not in descriptions:
+                    descriptions.append(chinese_summary)
+    
+    # From catalyst dates
+    if catalyst_raw:
+        dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
+        for cd in dates:
+            event_type = classify_catalyst(cd, notes)
+            event_reminder = check_event_with_detail(cd, event_type)
+            if event_reminder:
+                descriptions.append(event_reminder)
+    
+    return " | ".join(descriptions[:3])  # Max 3 items
+
+
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
 ) -> str:
-    """Generate a structured daily investment report in Traditional Chinese.
-    
-    Layout:
-    1. Header with date
-    2. ESSENTIALS: Stocks with buy/sell signals or events <= 7 days
-    3. VOLATILE: Stocks with >5% gain or <0% loss
-    4. STABLE: Stocks with 0~5% gain (compact list)
-    5. Footer
-    """
+    """Generate a concise daily report with only essential alerts."""
     now_tw = datetime.now(TW_TZ)
     date_str: str = now_tw.strftime("%Y-%m-%d (%A)")
 
-    # Collect all stock data first
-    stock_data: List[Dict[str, Any]] = []
+    report_lines: List[str] = [
+        "📈 美股投資日報 | " + date_str,
+        "=" * 40,
+        "",
+    ]
+
+    # Track what we found
+    has_alerts = False
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -214,6 +238,10 @@ def build_daily_report(
         sell_zone_raw = h.get("sellzone", h.get("賣出區間", ""))
         catalyst_raw = h.get("catalystdate", h.get("催化劑日期", ""))
         notes: str = str(h.get("notes", h.get("備註", ""))).strip()
+
+        # Clean up notes that have no meaning
+        if notes in ("見備註", "see notes", "(見備註)", "N/A"):
+            notes = ""
 
         buy_zones: List[float] = []
         if buy_zone_raw:
@@ -241,202 +269,72 @@ def build_daily_report(
             current_price = None
 
         if current_price is None:
-            stock_data.append({
-                "idx": idx,
-                "ticker": ticker,
-                "current_price": None,
-                "avg_cost": avg_cost,
-                "shares": shares,
-                "pnl_pct": 0,
-                "total_pnl": 0,
-                "buy_zones": buy_zones,
-                "sell_zones": sell_zones,
-                "catalyst_raw": catalyst_raw,
-                "notes": notes,
-                "news": stock_info.get("news", []) if stock_info else [],
-                "signal": "無法取得股價",
-            })
             continue
 
         pnl_per_share: float = current_price - avg_cost
         pnl_pct: float = (pnl_per_share / avg_cost * 100) if avg_cost > 0 else 0.0
         total_pnl: float = pnl_per_share * shares
 
-        # Determine signal
-        signal = ""
+        # Check for alerts
+        alert_items: List[str] = []
+
+        # Buy signal
         if buy_zones and current_price <= buy_zones[0]:
-            signal = "buy"
-        elif sell_zones and current_price >= sell_zones[0]:
-            signal = "sell"
-        
-        # Check for urgent events (<= 7 days)
-        has_urgent_event = False
+            zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
+            alert_items.append(f"🔺 買進: ${current_price:.2f} ≤ [{zone_str}]")
+
+        # Sell signal
+        if sell_zones and current_price >= sell_zones[0]:
+            zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
+            alert_items.append(f"🔻 賣出: ${current_price:.2f} ≥ [{zone_str}]")
+
+        # Urgent events (<= 7 days)
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
-                event_reminder = check_event_with_detail(cd, classify_catalyst(cd, notes))
+                event_type = classify_catalyst(cd, notes)
+                event_reminder = check_event_with_detail(cd, event_type)
                 if event_reminder and "⏰" in event_reminder:
-                    has_urgent_event = True
-                    break
+                    alert_items.append(event_reminder)
 
-        stock_data.append({
-            "idx": idx,
-            "ticker": ticker,
-            "current_price": current_price,
-            "avg_cost": avg_cost,
-            "shares": shares,
-            "pnl_pct": pnl_pct,
-            "total_pnl": total_pnl,
-            "buy_zones": buy_zones,
-            "sell_zones": sell_zones,
-            "catalyst_raw": catalyst_raw,
-            "notes": notes,
-            "news": stock_info.get("news", []) if stock_info else [],
-            "signal": signal,
-            "has_urgent_event": has_urgent_event,
-        })
+        # Significant P&L (>5% gain or any loss)
+        if pnl_pct > 5:
+            alert_items.append(f"🟢 大漲 {pnl_pct:+.2f}%")
+        elif pnl_pct < 0:
+            alert_items.append(f"🔴 下跌 {pnl_pct:+.2f}%")
 
-    # Sort into 3 tiers
-    essentials: List[Dict] = []  # buy/sell signals or urgent events
-    volatile: List[Dict] = []     # >5% gain or <0% loss
-    stable: List[Dict] = []       # 0~5% gain
+        # Only show if there are alerts
+        if not alert_items:
+            continue
 
-    for sd in stock_data:
-        if sd["signal"] in ("buy", "sell") or sd["has_urgent_event"]:
-            essentials.append(sd)
-        elif sd["pnl_pct"] > 5 or sd["pnl_pct"] < 0:
-            volatile.append(sd)
+        has_alerts = True
+
+        # P&L emoji
+        if pnl_pct >= 5:
+            pnl_emoji = "🟢"
+        elif pnl_pct >= 0:
+            pnl_emoji = "⚪"
         else:
-            stable.append(sd)
+            pnl_emoji = "🔴"
 
-    # Build report
-    report_lines: List[str] = [
-        "📈 美股投資日報 | " + date_str,
-        "=" * 40,
-        "",
-    ]
+        report_lines.append(f"{pnl_emoji} {ticker} | 當前$: {current_price:.2f} | 均價$: {avg_cost:.2f} | 持倉: {int(shares)} 股 | 損益$: {total_pnl:+,.2f} ({pnl_pct:+.2f}%)")
 
-    # Tier 1: ESSENTIALS
-    if essentials:
-        report_lines.append("🔥 精華區 — 立即關注")
-        report_lines.append("-" * 30)
-        for sd in essentials:
-            ticker = sd["ticker"]
-            cp = sd["current_price"]
-            ac = sd["avg_cost"]
-            shares = int(sd["shares"])
-            total_pnl = sd["total_pnl"]
-            pnl_pct = sd["pnl_pct"]
+        for alert in alert_items:
+            report_lines.append(f"  {alert}")
 
-            if cp is None:
-                report_lines.append(f"• {ticker} — ⚠️ 無法取得股價")
-                continue
+        # Event description from news
+        event_desc = get_event_description(ticker, catalyst_raw, notes, stock_info.get("news", []) if stock_info else [])
+        if event_desc:
+            report_lines.append(f"  📝 {event_desc}")
 
-            # Price emoji
-            if pnl_pct >= 5:
-                emoji = "🟢"
-            elif pnl_pct >= 0:
-                emoji = "⚪"
-            else:
-                emoji = "🔴"
+        report_lines.append("")
 
-            report_lines.append(f"{emoji} {ticker} | 當前$: {cp:.2f} | 均價$: {ac:.4f} | 持倉: {shares} 股 | 損益$: {total_pnl:+,.2f} ({pnl_pct:+.2f}%)")
-
-            # Buy signal
-            if sd["signal"] == "buy" and sd["buy_zones"]:
-                zone_str = ", ".join(f"${bz:.2f}" for bz in sd["buy_zones"])
-                report_lines.append(f"  🔺 買進訊號 — ${cp:.2f} ≤ [{zone_str}]")
-
-            # Sell signal
-            if sd["signal"] == "sell" and sd["sell_zones"]:
-                zone_str = ", ".join(f"${sz:.2f}" for sz in sd["sell_zones"])
-                report_lines.append(f"  🔻 賣出訊號 — ${cp:.2f} ≥ [{zone_str}]")
-
-            # Urgent events
-            if sd["has_urgent_event"] and sd["catalyst_raw"]:
-                dates = [d.strip() for d in str(sd["catalyst_raw"]).split(",") if d.strip()]
-                for cd in dates:
-                    event_type = classify_catalyst(cd, sd["notes"])
-                    event_reminder = check_event_with_detail(cd, event_type)
-                    if event_reminder and "⏰" in event_reminder:
-                        report_lines.append(f"  {event_reminder}")
-
-            # Notes
-            if sd["notes"]:
-                report_lines.append(f"  💬 {sd['notes']}")
-
-            # News
-            if sd["news"]:
-                for news_item in sd["news"][:2]:
-                    title = news_item.get("title", "").strip()
-                    if title:
-                        chinese_summary = translate_news_to_chinese(title)
-                        if chinese_summary:
-                            report_lines.append(f"  📰 {chinese_summary}")
-
-            report_lines.append("")
-
-    # Tier 2: VOLATILE
-    if volatile:
-        report_lines.append("📊 波動區 — 漲跌幅 >5% 或 <0%")
-        report_lines.append("-" * 30)
-        for sd in volatile:
-            ticker = sd["ticker"]
-            cp = sd["current_price"]
-            ac = sd["avg_cost"]
-            shares = int(sd["shares"])
-            total_pnl = sd["total_pnl"]
-            pnl_pct = sd["pnl_pct"]
-
-            if cp is None:
-                report_lines.append(f"• {ticker} — ⚠️ 無法取得股價")
-                continue
-
-            if pnl_pct >= 5:
-                emoji = "🟢"
-            elif pnl_pct >= 0:
-                emoji = "⚪"
-            else:
-                emoji = "🔴"
-
-            report_lines.append(f"{emoji} {ticker} | 當前$: {cp:.2f} | 均價$: {ac:.4f} | 持倉: {shares} 股 | 損益$: {total_pnl:+,.2f} ({pnl_pct:+.2f}%)")
-
-            if sd["notes"]:
-                report_lines.append(f"  💬 {sd['notes']}")
-
-            report_lines.append("")
-
-    # Tier 3: STABLE (compact list)
-    if stable:
-        report_lines.append("📋 平穩區 — 0~5% 波動")
-        report_lines.append("-" * 30)
-        stable_items: List[str] = []
-        for sd in stable:
-            ticker = sd["ticker"]
-            cp = sd["current_price"]
-            ac = sd["avg_cost"]
-            shares = int(sd["shares"])
-            total_pnl = sd["total_pnl"]
-            pnl_pct = sd["pnl_pct"]
-
-            if cp is None:
-                stable_items.append(f"{ticker} — ⚠️ 無法取得股價")
-                continue
-
-            if pnl_pct >= 5:
-                emoji = "🟢"
-            elif pnl_pct >= 0:
-                emoji = "⚪"
-            else:
-                emoji = "🔴"
-
-            stable_items.append(f"{emoji} {ticker}: {cp:.2f} | 持倉: {shares} 股 | 損益$: {total_pnl:+,.2f} ({pnl_pct:+.2f}%)")
-
-        report_lines.extend(stable_items)
+    if not has_alerts:
+        report_lines.append("✅ 今日無特別關注事項")
         report_lines.append("")
 
     report_lines.append("=" * 40)
-    report_lines.append("💡 以上為自動化產生，投資有風險，操作須謹慎。")
+    report_lines.append("💡 投資有風險，操作須謹慎。")
 
     return "\n".join(report_lines)
 
