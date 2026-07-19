@@ -23,7 +23,14 @@ def build_daily_report(
     holdings_data: List[Dict[str, Any]],
     fetcher: FinancialDataFetcher,
 ) -> str:
-    """Generate a structured daily investment report."""
+    """Generate a structured daily investment report.
+    
+    Layout:
+    1. Header with date and market status
+    2. MAJOR EVENTS (置顶) - Events within 14 days
+    3. URGENT - Buy/sell/stop-loss signals
+    4. Footer
+    """
     now_tw = datetime.now(TW_TZ)
     date_str: str = now_tw.strftime("%Y-%m-%d (%a)")
     
@@ -55,8 +62,8 @@ def build_daily_report(
     report_lines.append("=" * 40)
 
     # Collect all stock data
-    urgent_stocks: List[Dict] = []
-    major_events: List[Dict] = []
+    major_events_list: List[Dict] = []  # Events <= 14 days
+    urgent_stocks: List[Dict] = []  # Buy/sell/stop-loss signals
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -70,6 +77,7 @@ def build_daily_report(
         catalyst_raw = h.get("catalystdate", h.get("催化劑日期", ""))
         notes: str = str(h.get("notes", h.get("備註", ""))).strip()
 
+        # Clean up meaningless notes
         if notes in ("見備註", "see notes", "(見備註)", "N/A", ""):
             notes = ""
 
@@ -120,16 +128,11 @@ def build_daily_report(
             "fin_data": fin_data,
         }
 
-        is_urgent = False
+        # Categorize
         is_major_event = False
+        is_urgent = False
 
-        if buy_zones and current_price <= buy_zones[0]:
-            is_urgent = True
-        if sell_zones and current_price >= sell_zones[0]:
-            is_urgent = True
-        if pnl_pct < -10:
-            is_urgent = True
-
+        # Check major events (<= 14 days)
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
@@ -145,14 +148,46 @@ def build_daily_report(
                 except ValueError:
                     pass
 
-        if is_urgent:
-            urgent_stocks.append(stock_entry)
-        elif is_major_event:
-            major_events.append(stock_entry)
+        # Check buy/sell signals (only if outside 0-3% range)
+        if pnl_pct > 3 or pnl_pct < -3:
+            if buy_zones and current_price <= buy_zones[0]:
+                is_urgent = True
+            if sell_zones and current_price >= sell_zones[0]:
+                is_urgent = True
+            if pnl_pct < -10:  # Stop-loss
+                is_urgent = True
 
-    # Section 1: URGENT
-    if urgent_stocks:
+        if is_major_event:
+            major_events_list.append(stock_entry)
+        elif is_urgent:
+            urgent_stocks.append(stock_entry)
+
+    # Section 1: MAJOR EVENTS (置頂)
+    if major_events_list:
         report_lines.append("")
+        report_lines.append("🔔 【重大事件提醒】 (未來 14 天內)")
+        report_lines.append("─" * 40)
+        
+        for s in major_events_list:
+            ticker = s["ticker"]
+            event_type = s.get("event_type", "重要事件")
+            event_date = s.get("event_date", "")
+            event_delta = s.get("event_delta", 0)
+            notes = s.get("notes", "")
+
+            report_lines.append(f"⚠️ {ticker} ({s['company_name']}) | 倒數 {event_delta} 天")
+            report_lines.append(f"   📅 事件: {event_type} ({event_date})")
+            
+            # Show financial summary
+            if s.get("fin_data") and s["fin_data"].get("summary"):
+                report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
+            
+            if notes:
+                report_lines.append(f"   💬 備註: {notes}")
+            report_lines.append("")
+
+    # Section 2: URGENT
+    if urgent_stocks:
         report_lines.append("🚨 【需立即行動】 (觸發買賣/停損條件)")
         report_lines.append("─" * 40)
         
@@ -193,31 +228,9 @@ def build_daily_report(
 
             report_lines.append("")
 
-    # Section 2: MAJOR EVENTS
-    if major_events:
-        report_lines.append("🔔 【重大事件提醒】 (未來 14 天內)")
-        report_lines.append("─" * 40)
-        
-        for s in major_events:
-            ticker = s["ticker"]
-            event_type = s.get("event_type", "重要事件")
-            event_date = s.get("event_date", "")
-            event_delta = s.get("event_delta", 0)
-            notes = s.get("notes", "")
-
-            report_lines.append(f"⚠️ {ticker} ({s['company_name']}) | 倒數 {event_delta} 天")
-            report_lines.append(f"   📅 事件: {event_type} ({event_date})")
-            
-            if s.get("fin_data") and s["fin_data"].get("summary"):
-                report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
-            
-            if notes:
-                report_lines.append(f"   💬 備註: {notes}")
-            report_lines.append("")
-
     # Footer
     report_lines.append("=" * 40)
-    report_lines.append("⚙️ 系統狀態: 資料更新成功 | 下次執行: 07-20 21:05 (UTC)")
+    report_lines.append("⚙️ 系統狀態: 資料更新成功 | 下次執行: 每週一至五 22:00 (台灣時間)")
     report_lines.append("⚠️ 免責聲明: 本日報由系統自動生成，僅供操作參考，請自行確認市場流動性與風險。")
 
     return "\n".join(report_lines)
