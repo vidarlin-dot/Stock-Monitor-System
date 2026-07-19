@@ -18,52 +18,128 @@ logger = logging.getLogger(__name__)
 
 TW_TZ = pytz.timezone("Asia/Taipei")
 
+# US Stock Market Holidays (2024-2030)
+# Format: (month, day, name)
+US_MARKET_HOLIDAYS: List[tuple] = [
+    # 2024
+    (1, 1, "新年"),
+    (1, 15, "馬丁路德金日"),
+    (2, 19, "總統日"),
+    (5, 27, "紀念日"),
+    (6, 19, "六月節"),
+    (7, 4, "獨立日"),
+    (9, 2, "勞動節"),
+    (11, 28, "感恩節"),
+    (12, 25, "聖誕節"),
+    # 2025
+    (1, 1, "新年"),
+    (1, 20, "馬丁路德金日"),
+    (2, 17, "總統日"),
+    (5, 26, "紀念日"),
+    (6, 19, "六月節"),
+    (7, 4, "獨立日"),
+    (9, 1, "勞動節"),
+    (11, 27, "感恩節"),
+    (12, 25, "聖誕節"),
+    # 2026
+    (1, 1, "新年"),
+    (1, 19, "馬丁路德金日"),
+    (2, 16, "總統日"),
+    (5, 25, "紀念日"),
+    (6, 19, "六月節"),
+    (7, 4, "獨立日"),
+    (9, 7, "勞動節"),
+    (11, 26, "感恩節"),
+    (12, 25, "聖誕節"),
+    # 2027
+    (1, 1, "新年"),
+    (1, 18, "馬丁路德金日"),
+    (2, 15, "總統日"),
+    (5, 31, "紀念日"),
+    (6, 19, "六月節"),
+    (7, 5, "獨立日"),
+    (9, 6, "勞動節"),
+    (11, 25, "感恩節"),
+    (12, 25, "聖誕節"),
+]
+
+
+def is_us_market_open(date: Optional[datetime] = None) -> bool:
+    """Check if US stock market is open on given date.
+    
+    Args:
+        date: Date to check. Defaults to today.
+    
+    Returns:
+        True if market is open, False if closed (weekend or holiday).
+    """
+    if date is None:
+        date = datetime.now(TW_TZ)
+    
+    # Convert to US Eastern time for accurate check
+    us_time = date.astimezone(pytz.timezone("America/New_York"))
+    
+    # Check if weekend (5=Saturday, 6=Sunday)
+    if us_time.weekday() >= 5:
+        return False
+    
+    # Check if holiday
+    check_date = us_time.date()
+    for month, day, _ in US_MARKET_HOLIDAYS:
+        holiday_date = check_date.replace(month=month, day=day)
+        if check_date == holiday_date:
+            return False
+    
+    return True
+
+
+def get_last_trading_date() -> datetime:
+    """Get the date of the last trading day.
+    
+    Returns:
+        Last trading date as datetime object.
+    """
+    today = datetime.now(TW_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    days_back = 1
+    
+    while True:
+        check_date = today - timedelta(days=days_back)
+        if is_us_market_open(check_date):
+            return check_date
+        days_back += 1
+        if days_back > 10:  # Safety limit
+            return today - timedelta(days=3)
+
 
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
     fetcher: FinancialDataFetcher,
 ) -> str:
-    """Generate a structured daily investment report.
-    
-    Layout:
-    1. Header with date and market status
-    2. MAJOR EVENTS (置顶) - Events within 14 days
-    3. URGENT - Buy/sell/stop-loss signals
-    4. Footer
-    """
+    """Generate a structured daily investment report."""
     now_tw = datetime.now(TW_TZ)
     date_str: str = now_tw.strftime("%Y-%m-%d (%a)")
     
-    # Check if weekend
-    day_of_week = now_tw.weekday()  # 0=Monday, 6=Sunday
-    is_weekend = day_of_week >= 5
+    # Check if market is open
+    market_open = is_us_market_open(now_tw)
     
     # Get last trading day date
-    last_trading_date = now_tw.strftime("%m-%d")
-    if is_weekend:
-        today_naive = now_tw.replace(tzinfo=None)
-        days_since_friday = (today_naive - datetime(today_naive.year, today_naive.month, today_naive.day)).days
-        if days_since_friday == 1:  # Saturday
-            last_trading_date = (today_naive - timedelta(days=1)).strftime("%m-%d")
-        elif days_since_friday == 2:  # Sunday
-            last_trading_date = (today_naive - timedelta(days=2)).strftime("%m-%d")
-        else:
-            last_trading_date = (today_naive - timedelta(days=days_since_friday - 1)).strftime("%m-%d")
+    last_trading = get_last_trading_date()
+    last_trading_date_str = last_trading.strftime("%m-%d")
     
     report_lines: List[str] = [
         "📈 美股投資策略日報 | " + date_str,
     ]
     
-    if is_weekend:
-        report_lines.append(f"💡 註：週{['一','二','三','四','五','六','日'][day_of_week]}休市，以下為上週五 ({last_trading_date}) 收盤參考價")
+    if not market_open:
+        report_lines.append(f"💡 註：今日休市（{get_holiday_name(now_tw)}），以下為上週五 ({last_trading_date_str}) 收盤參考價")
     else:
         report_lines.append("💡 註：以下為今日收盤價")
     
     report_lines.append("=" * 40)
 
     # Collect all stock data
-    major_events_list: List[Dict] = []  # Events <= 14 days
-    urgent_stocks: List[Dict] = []  # Buy/sell/stop-loss signals
+    major_events_list: List[Dict] = []
+    urgent_stocks: List[Dict] = []
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -178,7 +254,6 @@ def build_daily_report(
             report_lines.append(f"⚠️ {ticker} ({s['company_name']}) | 倒數 {event_delta} 天")
             report_lines.append(f"   📅 事件: {event_type} ({event_date})")
             
-            # Show financial summary
             if s.get("fin_data") and s["fin_data"].get("summary"):
                 report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
             
@@ -234,6 +309,26 @@ def build_daily_report(
     report_lines.append("⚠️ 免責聲明: 本日報由系統自動生成，僅供操作參考，請自行確認市場流動性與風險。")
 
     return "\n".join(report_lines)
+
+
+def get_holiday_name(date: datetime) -> str:
+    """Get holiday name for a given date.
+    
+    Args:
+        date: Date to check.
+    
+    Returns:
+        Holiday name or empty string if not a holiday.
+    """
+    check_date = date.date()
+    for month, day, name in US_MARKET_HOLIDAYS:
+        try:
+            holiday_date = check_date.replace(month=month, day=day)
+            if check_date == holiday_date:
+                return name
+        except ValueError:
+            continue
+    return ""
 
 
 def classify_catalyst(date_str: str, notes: str = "") -> str:
