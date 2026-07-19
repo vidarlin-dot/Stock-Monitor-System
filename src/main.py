@@ -17,21 +17,13 @@ from line_notifier import LineNotifier
 logger = logging.getLogger(__name__)
 
 TW_TZ = pytz.timezone("Asia/Taipei")
-US_EASTERN = pytz.timezone("America/New_York")
 
 
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
     fetcher: FinancialDataFetcher,
 ) -> str:
-    """Generate a structured daily investment report.
-    
-    Layout:
-    1. Header with date and market status
-    2. URGENT: Stocks with buy/sell/stop-loss signals
-    3. UPCOMING: Major events within 14 days
-    4. Footer
-    """
+    """Generate a structured daily investment report."""
     now_tw = datetime.now(TW_TZ)
     date_str: str = now_tw.strftime("%Y-%m-%d (%a)")
     
@@ -42,13 +34,14 @@ def build_daily_report(
     # Get last trading day date
     last_trading_date = now_tw.strftime("%m-%d")
     if is_weekend:
-        days_since_friday = (now_tw - datetime(now_tw.year, now_tw.month, now_tw.day)).days
+        today_naive = now_tw.replace(tzinfo=None)
+        days_since_friday = (today_naive - datetime(today_naive.year, today_naive.month, today_naive.day)).days
         if days_since_friday == 1:  # Saturday
-            last_trading_date = (now_tw - timedelta(days=1)).strftime("%m-%d")
+            last_trading_date = (today_naive - timedelta(days=1)).strftime("%m-%d")
         elif days_since_friday == 2:  # Sunday
-            last_trading_date = (now_tw - timedelta(days=2)).strftime("%m-%d")
+            last_trading_date = (today_naive - timedelta(days=2)).strftime("%m-%d")
         else:
-            last_trading_date = (now_tw - timedelta(days=days_since_friday - 1)).strftime("%m-%d")
+            last_trading_date = (today_naive - timedelta(days=days_since_friday - 1)).strftime("%m-%d")
     
     report_lines: List[str] = [
         "📈 美股投資策略日報 | " + date_str,
@@ -62,8 +55,8 @@ def build_daily_report(
     report_lines.append("=" * 40)
 
     # Collect all stock data
-    urgent_stocks: List[Dict] = []  # Buy/sell/stop-loss signals
-    major_events: List[Dict] = []  # Events <= 14 days
+    urgent_stocks: List[Dict] = []
+    major_events: List[Dict] = []
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -77,7 +70,6 @@ def build_daily_report(
         catalyst_raw = h.get("catalystdate", h.get("催化劑日期", ""))
         notes: str = str(h.get("notes", h.get("備註", ""))).strip()
 
-        # Clean up meaningless notes
         if notes in ("見備註", "see notes", "(見備註)", "N/A", ""):
             notes = ""
 
@@ -97,10 +89,8 @@ def build_daily_report(
                 except ValueError:
                     pass
 
-        # Get financial data from all sources
         fin_data = fetcher.fetch_all(ticker)
 
-        # Get price from yfinance
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="5d")
@@ -130,28 +120,23 @@ def build_daily_report(
             "fin_data": fin_data,
         }
 
-        # Categorize
         is_urgent = False
         is_major_event = False
 
-        # Check buy/sell signals
         if buy_zones and current_price <= buy_zones[0]:
             is_urgent = True
         if sell_zones and current_price >= sell_zones[0]:
             is_urgent = True
-
-        # Check stop-loss (if price drops >10% from avg cost)
         if pnl_pct < -10:
             is_urgent = True
 
-        # Check major events (<= 14 days)
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
                 try:
                     event_dt = datetime.strptime(cd, "%Y-%m-%d")
-                    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                    delta = (event_dt - today).days
+                    today_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                    delta = (event_dt - today_naive).days
                     if 0 <= delta <= 14:
                         is_major_event = True
                         stock_entry["event_type"] = classify_catalyst(cd, notes)
@@ -165,7 +150,6 @@ def build_daily_report(
         elif is_major_event:
             major_events.append(stock_entry)
 
-    # Build report sections
     # Section 1: URGENT
     if urgent_stocks:
         report_lines.append("")
@@ -179,7 +163,6 @@ def build_daily_report(
             shares = s["shares"]
             pnl_pct = s["pnl_pct"]
 
-            # P&L emoji
             if pnl_pct >= 5:
                 emoji = "🟢"
             elif pnl_pct >= 0:
@@ -191,25 +174,20 @@ def build_daily_report(
             report_lines.append(f"   💰 持倉: {shares}股 | 均價: ${ac:.2f} | 損益: {pnl_pct:+.1f}%")
             report_lines.append(f"   📉 當前價: ${cp:.2f}")
 
-            # Buy signal
             if s["buy_zones"] and cp <= s["buy_zones"][0]:
                 zone_str = ", ".join(f"${bz:.2f}" for bz in s["buy_zones"])
                 report_lines.append(f"   ✅ 觸發買入：已落入第一買入區間 [{zone_str}]")
 
-            # Sell signal
             if s["sell_zones"] and cp >= s["sell_zones"][0]:
                 zone_str = ", ".join(f"${sz:.2f}" for sz in s["sell_zones"])
                 report_lines.append(f"   🔻 觸發賣出：已達到賣出區間 [{zone_str}]")
 
-            # Stop-loss
             if pnl_pct < -10:
                 report_lines.append(f"   🛑 觸發停損：已跌破停損點 (${ac * 0.9:.2f})")
 
-            # Financial summary from all sources
             if s.get("fin_data") and s["fin_data"].get("summary"):
                 report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
 
-            # Notes
             if s["notes"]:
                 report_lines.append(f"   💬 {s['notes']}")
 
@@ -230,7 +208,6 @@ def build_daily_report(
             report_lines.append(f"⚠️ {ticker} ({s['company_name']}) | 倒數 {event_delta} 天")
             report_lines.append(f"   📅 事件: {event_type} ({event_date})")
             
-            # Financial summary
             if s.get("fin_data") and s["fin_data"].get("summary"):
                 report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
             
@@ -317,14 +294,10 @@ def main() -> None:
         logger.warning("No holdings found.")
         return
 
-    # Initialize financial data fetcher
     fetcher = FinancialDataFetcher()
-
-    # Build report
     report = build_daily_report(holdings, fetcher)
     print(report)
 
-    # Send LINE notification
     notifier = LineNotifier()
     notifier.send_push_message(report)
     logger.info("Daily report sent successfully.")
