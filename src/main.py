@@ -239,6 +239,7 @@ def build_daily_report(
         pnl_pct: float = (pnl_per_share / avg_cost * 100) if avg_cost > 0 else 0.0
         total_pnl: float = pnl_per_share * shares
 
+        # 🟢 = 大賺 (>5%), 🟡 = 小賺 (0~5%), 🔴 = 賠錢 (<0%)
         if pnl_pct >= 5:
             emoji = "🟢"
         elif pnl_pct >= 0:
@@ -252,17 +253,18 @@ def build_daily_report(
             f"   持倉: {int(shares)} 股 | 損益: ${total_pnl:+,.2f} ({pnl_pct:+.2f}%)"
         )
 
+        # 買進：🔺 綠色上箭頭 | 賣出：🔻 紅色下箭頭
         if buy_zones:
             zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
             if current_price <= buy_zones[0]:
-                report_lines.append(f"   🟢 買進訊號 — ${current_price:.2f} ≤ [{zone_str}]")
+                report_lines.append(f"   🔺 買進訊號 — ${current_price:.2f} ≤ [{zone_str}]")
             else:
                 report_lines.append(f"   📌 買進區間: {zone_str}")
 
         if sell_zones:
             zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
             if current_price >= sell_zones[0]:
-                report_lines.append(f"   🔴 賣出訊號 — ${current_price:.2f} ≥ [{zone_str}]")
+                report_lines.append(f"   🔻 賣出訊號 — ${current_price:.2f} ≥ [{zone_str}]")
             else:
                 report_lines.append(f"   📌 賣出區間: {zone_str}")
 
