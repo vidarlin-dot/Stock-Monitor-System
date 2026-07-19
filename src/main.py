@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytz
@@ -158,59 +158,34 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
     return "重要事件"
 
 
-def check_event_with_detail(event_date_str: str, event_type: str) -> Optional[str]:
-    """Check if an event is within 30 days and return formatted string."""
-    try:
-        event_dt = datetime.strptime(str(event_date_str), "%Y-%m-%d")
-    except ValueError:
-        return None
-    
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    delta = (event_dt - today).days
-    
-    if delta < 0:
-        return None
-    
-    display = event_type
-    
-    if 0 <= delta <= 7:
-        return f"⏰ {display} — {delta} 天後 ({event_date_str})"
-    if delta <= 30:
-        return f"📅 {display} — {delta} 天後 ({event_date_str})"
-    return None
-
-
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
 ) -> str:
-    """Generate a structured daily investment report with 3 tiers.
+    """Generate a structured daily investment report.
     
     Layout:
     1. Header with date and market status
     2. URGENT: Stocks with buy/sell/stop-loss signals
-    3. UPCOMING: Events within 14 days
-    4. WATCHLIST: All other holdings (compact)
-    5. Footer with system status
+    3. UPCOMING: Major events within 14 days
+    4. Footer
     """
     now_tw = datetime.now(TW_TZ)
-    now_us = datetime.now(US_EASTERN)
     date_str: str = now_tw.strftime("%Y-%m-%d (%a)")
     
     # Check if weekend
     day_of_week = now_tw.weekday()  # 0=Monday, 6=Sunday
     is_weekend = day_of_week >= 5
     
-    # Get last trading day price if weekend
+    # Get last trading day date
     last_trading_date = now_tw.strftime("%m-%d")
     if is_weekend:
-        # Find last Friday
         days_since_friday = (now_tw - datetime(now_tw.year, now_tw.month, now_tw.day)).days
         if days_since_friday == 1:  # Saturday
-            last_trading_date = (now_tw.replace(hour=0, minute=0, second=0, microsecond=0) - __import__('datetime').timedelta(days=1)).strftime("%m-%d")
+            last_trading_date = (now_tw - timedelta(days=1)).strftime("%m-%d")
         elif days_since_friday == 2:  # Sunday
-            last_trading_date = (now_tw.replace(hour=0, minute=0, second=0, microsecond=0) - __import__('datetime').timedelta(days=2)).strftime("%m-%d")
+            last_trading_date = (now_tw - timedelta(days=2)).strftime("%m-%d")
         else:
-            last_trading_date = (now_tw.replace(hour=0, minute=0, second=0, microsecond=0) - __import__('datetime').timedelta(days=days_since_friday - 1)).strftime("%m-%d")
+            last_trading_date = (now_tw - timedelta(days=days_since_friday - 1)).strftime("%m-%d")
     
     report_lines: List[str] = [
         "📈 美股投資策略日報 | " + date_str,
@@ -225,8 +200,7 @@ def build_daily_report(
 
     # Collect all stock data
     urgent_stocks: List[Dict] = []  # Buy/sell/stop-loss signals
-    upcoming_events: List[Dict] = []  # Events <= 14 days
-    watchlist: List[Dict] = []  # All other stocks
+    major_events: List[Dict] = []  # Events <= 14 days
 
     for idx, h in enumerate(holdings_data, start=1):
         ticker: str = str(h.get("ticker", h.get("代碼", "?"))).strip().upper()
@@ -278,6 +252,7 @@ def build_daily_report(
 
         stock_entry = {
             "ticker": ticker,
+            "company_name": _get_company_name(ticker),
             "current_price": current_price,
             "avg_cost": avg_cost,
             "shares": int(shares),
@@ -292,7 +267,7 @@ def build_daily_report(
 
         # Categorize
         is_urgent = False
-        is_upcoming = False
+        is_major_event = False
 
         # Check buy/sell signals
         if buy_zones and current_price <= buy_zones[0]:
@@ -304,7 +279,7 @@ def build_daily_report(
         if pnl_pct < -10:
             is_urgent = True
 
-        # Check upcoming events (<= 14 days)
+        # Check major events (<= 14 days)
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             for cd in dates:
@@ -313,7 +288,7 @@ def build_daily_report(
                     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                     delta = (event_dt - today).days
                     if 0 <= delta <= 14:
-                        is_upcoming = True
+                        is_major_event = True
                         stock_entry["event_type"] = classify_catalyst(cd, notes)
                         stock_entry["event_date"] = cd
                         stock_entry["event_delta"] = delta
@@ -322,10 +297,8 @@ def build_daily_report(
 
         if is_urgent:
             urgent_stocks.append(stock_entry)
-        elif is_upcoming:
-            upcoming_events.append(stock_entry)
-        else:
-            watchlist.append(stock_entry)
+        elif is_major_event:
+            major_events.append(stock_entry)
 
     # Build report sections
     # Section 1: URGENT
@@ -340,7 +313,6 @@ def build_daily_report(
             ac = s["avg_cost"]
             shares = s["shares"]
             pnl_pct = s["pnl_pct"]
-            total_pnl = s["total_pnl"]
 
             # P&L emoji
             if pnl_pct >= 5:
@@ -350,7 +322,7 @@ def build_daily_report(
             else:
                 emoji = "🔴"
 
-            report_lines.append(f"{emoji} {ticker} ({_get_company_name(ticker)})")
+            report_lines.append(f"{emoji} {ticker} ({s['company_name']})")
             report_lines.append(f"   💰 持倉: {shares}股 | 均價: ${ac:.2f} | 損益: {pnl_pct:+.1f}%")
             report_lines.append(f"   📉 當前價: ${cp:.2f}")
 
@@ -374,47 +346,23 @@ def build_daily_report(
 
             report_lines.append("")
 
-    # Section 2: UPCOMING EVENTS
-    if upcoming_events:
-        report_lines.append("⏳ 【催化劑倒數提醒】 (未來 14 天內)")
+    # Section 2: MAJOR EVENTS
+    if major_events:
+        report_lines.append("🔔 【重大事件提醒】 (未來 14 天內)")
         report_lines.append("─" * 40)
         
-        for s in upcoming_events:
+        for s in major_events:
             ticker = s["ticker"]
-            notes = s.get("notes", "")
             event_type = s.get("event_type", "重要事件")
             event_date = s.get("event_date", "")
             event_delta = s.get("event_delta", 0)
+            notes = s.get("notes", "")
 
-            report_lines.append(f"⚠️ {ticker} ({_get_company_name(ticker)}) | 倒數 {event_delta} 天")
+            report_lines.append(f"⚠️ {ticker} ({s['company_name']}) | 倒數 {event_delta} 天")
             report_lines.append(f"   📅 事件: {event_type} ({event_date})")
             if notes:
                 report_lines.append(f"   💬 備註: {notes}")
             report_lines.append("")
-
-    # Section 3: WATCHLIST (compact)
-    if watchlist:
-        report_lines.append("📊 【常規持倉追蹤】 (未觸發特殊條件)")
-        report_lines.append("─" * 40)
-        
-        for s in watchlist[:10]:  # Show max 10 for brevity
-            ticker = s["ticker"]
-            cp = s["current_price"]
-            pnl_pct = s["pnl_pct"]
-
-            if pnl_pct >= 5:
-                emoji = "🟢"
-            elif pnl_pct >= 0:
-                emoji = "⚪"
-            else:
-                emoji = "🔴"
-
-            report_lines.append(f"• {ticker}: ${cp:.2f} (損益 {pnl_pct:+.1f}%) | 區間觀望中")
-
-        if len(watchlist) > 10:
-            report_lines.append(f"*(其餘 {len(watchlist) - 10} 檔持倉詳細數據請至 Google Sheets 檢視)*")
-
-        report_lines.append("")
 
     # Footer
     report_lines.append("=" * 40)
