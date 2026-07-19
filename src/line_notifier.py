@@ -1,7 +1,8 @@
-﻿"""LINE Messaging API notification module.
+"""LINE Messaging API notification module.
 
 Provides LineNotifier for pushing daily investment reports via the
-LINE Bot API (v2).  Supports multiple recipient User IDs.
+LINE Bot API (v2).  Supports both push to specific users and
+broadcast to all followers.
 """
 
 from __future__ import annotations
@@ -15,62 +16,63 @@ import requests
 logger = logging.getLogger(__name__)
 
 LINE_PUSH_URL: str = "https://api.line.me/v2/bot/message/push"
+LINE_BROADCAST_URL: str = "https://api.line.me/v2/bot/message/broadcast"
 
 
 class LineNotifier:
-    """Send push notifications through the LINE Messaging API.
+    """Send notifications through the LINE Messaging API.
 
-    Credentials are read from environment variables:
+    Configuration via environment variables:
         - ``LINE_CHANNEL_ACCESS_TOKEN``  (required)
-        - ``LINE_USER_ID``              (optional, comma-separated for multiple users)
+        - ``LINE_USER_ID``              (optional)
+          - If set: push to specific user(s)
+          - If empty: broadcast to all followers
 
-    If ``LINE_USER_ID`` is not set, the message is sent to everyone who
-    has added the bot as a friend (broadcast).
+    Usage::
+
+        notifier = LineNotifier()
+        notifier.send_push_message("Hello!")  # Push or broadcast
     """
 
-    def __init__(self) -> None:  # noqa: D401
+    def __init__(self) -> None:
         self.token: Optional[str] = None
         self.user_ids: List[str] = []
+        self.use_broadcast: bool = False
 
         self.token = self._get_env("LINE_CHANNEL_ACCESS_TOKEN")
         if not self.token:
-            raise ValueError(
-                "Environment variable LINE_CHANNEL_ACCESS_TOKEN is not set."
-            )
+            raise ValueError("LINE_CHANNEL_ACCESS_TOKEN is not set.")
 
-        # Support comma-separated User IDs
         user_id_raw: Optional[str] = self._get_env("LINE_USER_ID", default="")
         if user_id_raw:
             self.user_ids = [
                 uid.strip() for uid in user_id_raw.split(",") if uid.strip()
             ]
-        # If empty, we'll broadcast to all followers
+        else:
+            # No user IDs set → broadcast to all followers
+            self.use_broadcast = True
+            logger.info("LINE_USER_ID not set. Will broadcast to all followers.")
 
     def send_push_message(self, message: str) -> None:
-        """Send a text push message to configured LINE users.
+        """Send a message to configured recipients.
+
+        If LINE_USER_ID is set, sends to those users (push).
+        Otherwise, broadcasts to all followers.
 
         Args:
-            message: The plain-text message body (supports Unicode /
-                     traditional Chinese characters).
+            message: The plain-text message body.
 
         Raises:
             requests.exceptions.RequestException: On network / HTTP errors.
         """
-        if self.user_ids:
-            # Send to specific users
+        if self.use_broadcast:
+            self._send_broadcast(message)
+        else:
             for user_id in self.user_ids:
                 self._send_to_user(user_id, message)
-        else:
-            # Broadcast to all followers
-            self._send_broadcast(message)
 
     def _send_to_user(self, user_id: str, message: str) -> None:
-        """Send a push message to a single user.
-
-        Args:
-            user_id: LINE User ID.
-            message: Message text.
-        """
+        """Send a push message to a single user."""
         payload: dict = {
             "to": user_id,
             "messages": [
@@ -106,11 +108,7 @@ class LineNotifier:
         logger.info("LINE push message sent to '%s' successfully.", user_id)
 
     def _send_broadcast(self, message: str) -> None:
-        """Broadcast a message to all followers.
-
-        Args:
-            message: Message text.
-        """
+        """Broadcast a message to all followers."""
         payload: dict = {
             "messages": [
                 {
@@ -127,7 +125,7 @@ class LineNotifier:
 
         logger.info("Sending LINE broadcast to all followers.")
         resp: requests.Response = requests.post(
-            "https://api.line.me/v2/bot/message/broadcast",
+            LINE_BROADCAST_URL,
             json=payload,
             headers=headers,
             timeout=30,
