@@ -74,7 +74,6 @@ class GoogleSheetsManager:
         rows: List[List[Any]] = self.worksheet.get_all_values()
         headers_raw: List[str] = [str(h).strip() for h in rows[0]]
 
-        # Map English to Chinese headers
         col_mapping = {
             "ticker": ["ticker", "代碼"],
             "shares": ["shares", "股數"],

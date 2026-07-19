@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -12,6 +11,7 @@ import pytz
 import yfinance as yf
 
 from config import GoogleSheetsManager
+from financial_sources import FinancialDataFetcher
 from line_notifier import LineNotifier
 
 logger = logging.getLogger(__name__)
@@ -20,146 +20,9 @@ TW_TZ = pytz.timezone("Asia/Taipei")
 US_EASTERN = pytz.timezone("America/New_York")
 
 
-def fetch_stock_info(ticker: str) -> Optional[Dict[str, Any]]:
-    """Fetch stock info including news."""
-    try:
-        stock = yf.Ticker(ticker)
-        info = {}
-
-        try:
-            news_list = stock.news
-            if news_list:
-                info["news"] = []
-                for item in news_list[:10]:
-                    info["news"].append({
-                        "title": item.get("title", ""),
-                        "publisher": item.get("publisher", ""),
-                        "link": item.get("link", ""),
-                    })
-        except Exception:
-            info["news"] = []
-
-        return info if info.get("news") else None
-
-    except Exception as exc:
-        logger.warning("Failed to fetch info for %s: %s", ticker, exc)
-        return None
-
-
-def translate_news_to_chinese(title: str) -> str:
-    """Translate English news title to Traditional Chinese summary."""
-    title_lower = title.lower()
-    
-    translations = {
-        "earnings": "財報",
-        "revenue": "營收",
-        "profit": "獲利",
-        "loss": "虧損",
-        "beat": "超越",
-        "miss": "低於",
-        "expect": "預期",
-        "guidance": "展望",
-        "raise": "上調",
-        "cut": "下調",
-        "upgrade": "上調評級",
-        "downgrade": "下調評級",
-        "approval": "批准",
-        "fda": "FDA",
-        "phase 3": "三期臨床",
-        "phase ii": "二期臨床",
-        "phase i": "一期臨床",
-        "trial": "試驗",
-        "results": "結果",
-        "positive": "正面",
-        "negative": "負面",
-        "launch": "推出",
-        "product": "產品",
-        "partnership": "合作",
-        "acquisition": "收購",
-        "buyback": "回購",
-        "dividend": "配息",
-        "increase": "增加",
-        "decrease": "減少",
-        "growth": "成長",
-        "demand": "需求",
-        "supply": "供應",
-        "chip": "晶片",
-        "ai": "AI",
-        "quantum": "量子",
-        "drug": "藥物",
-        "cancer": "癌症",
-        "obesity": "肥胖",
-        "diabetes": "糖尿病",
-        "cardiovascular": "心血管",
-        "record": "創紀錄",
-        "strong": "強勁",
-        "weak": "疲弱",
-        "solid": "穩健",
-        "robust": "強勁",
-        "surge": "飆升",
-        "plunge": "暴跌",
-        "rally": "反彈",
-        "pullback": "回調",
-        "volatility": "波動",
-        "risk": "風險",
-        "opportunity": "機會",
-        "challenge": "挑戰",
-        "momentum": "動能",
-        "tailwind": "助力",
-        "headwind": "逆風",
-    }
-    
-    chinese_parts: List[str] = []
-    remaining = title
-    
-    for en_word, zh_word in sorted(translations.items(), key=lambda x: -len(x[0])):
-        if en_word in remaining.lower():
-            chinese_parts.append(zh_word)
-            remaining = re.sub(re.escape(en_word), "", remaining, flags=re.IGNORECASE).strip()
-    
-    remaining = re.sub(r'[^\w\s\-]', '', remaining).strip()
-    
-    if chinese_parts:
-        summary = " ".join(chinese_parts)
-        if remaining and len(remaining) < 50:
-            summary += f"：{remaining}"
-        return summary
-    else:
-        cleaned = re.sub(r'[^\w\s\-]', '', remaining).strip()
-        return cleaned[:60] if len(cleaned) > 60 else cleaned
-
-
-def classify_catalyst(date_str: str, notes: str = "") -> str:
-    """Classify a catalyst date into an event type."""
-    notes_lower = notes.lower() if notes else ""
-    
-    keywords = {
-        "財報": ["財報", "earnings", "quarterly", "q1", "q2", "q3", "q4", "季報", "年報"],
-        "FDA批准": ["fda", "批准", "認證", "regulatory", "nda", "bla"],
-        "臨床試驗": ["phase 3", "phase ii", "phase i", "臨床", "試驗", "data readout"],
-        "量產": ["量產", "production", "manufacturing", "產能"],
-        "合作": ["合作", "partnership", "collaboration", "alliance"],
-        "產品發布": ["推出", "launch", "release", "新品"],
-        "融資/上市": ["ipo", "listing", "上市", "融資", "fundraising"],
-        "評級調整": ["upgrade", "downgrade", "目標價", "rating", "分析師"],
-    }
-    
-    for event_type, kws in keywords.items():
-        if any(kw in notes_lower for kw in kws):
-            return event_type
-    
-    try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        if dt.month in [2, 5, 8, 11]:
-            return "財報"
-    except ValueError:
-        pass
-    
-    return "重要事件"
-
-
 def build_daily_report(
     holdings_data: List[Dict[str, Any]],
+    fetcher: FinancialDataFetcher,
 ) -> str:
     """Generate a structured daily investment report.
     
@@ -234,8 +97,10 @@ def build_daily_report(
                 except ValueError:
                     pass
 
-        stock_info = fetch_stock_info(ticker)
+        # Get financial data from all sources
+        fin_data = fetcher.fetch_all(ticker)
 
+        # Get price from yfinance
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="5d")
@@ -262,7 +127,7 @@ def build_daily_report(
             "sell_zones": sell_zones,
             "catalyst_raw": catalyst_raw,
             "notes": notes,
-            "news": stock_info.get("news", []) if stock_info else [],
+            "fin_data": fin_data,
         }
 
         # Categorize
@@ -340,6 +205,10 @@ def build_daily_report(
             if pnl_pct < -10:
                 report_lines.append(f"   🛑 觸發停損：已跌破停損點 (${ac * 0.9:.2f})")
 
+            # Financial summary from all sources
+            if s.get("fin_data") and s["fin_data"].get("summary"):
+                report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
+
             # Notes
             if s["notes"]:
                 report_lines.append(f"   💬 {s['notes']}")
@@ -360,6 +229,11 @@ def build_daily_report(
 
             report_lines.append(f"⚠️ {ticker} ({s['company_name']}) | 倒數 {event_delta} 天")
             report_lines.append(f"   📅 事件: {event_type} ({event_date})")
+            
+            # Financial summary
+            if s.get("fin_data") and s["fin_data"].get("summary"):
+                report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
+            
             if notes:
                 report_lines.append(f"   💬 備註: {notes}")
             report_lines.append("")
@@ -370,6 +244,35 @@ def build_daily_report(
     report_lines.append("⚠️ 免責聲明: 本日報由系統自動生成，僅供操作參考，請自行確認市場流動性與風險。")
 
     return "\n".join(report_lines)
+
+
+def classify_catalyst(date_str: str, notes: str = "") -> str:
+    """Classify a catalyst date into an event type."""
+    notes_lower = notes.lower() if notes else ""
+    
+    keywords = {
+        "財報": ["財報", "earnings", "quarterly", "q1", "q2", "q3", "q4", "季報", "年報"],
+        "FDA批准": ["fda", "批准", "認證", "regulatory", "nda", "bla"],
+        "臨床試驗": ["phase 3", "phase ii", "phase i", "臨床", "試驗", "data readout"],
+        "量產": ["量產", "production", "manufacturing", "產能"],
+        "合作": ["合作", "partnership", "collaboration", "alliance"],
+        "產品發布": ["推出", "launch", "release", "新品"],
+        "融資/上市": ["ipo", "listing", "上市", "融資", "fundraising"],
+        "評級調整": ["upgrade", "downgrade", "目標價", "rating", "分析師"],
+    }
+    
+    for event_type, kws in keywords.items():
+        if any(kw in notes_lower for kw in kws):
+            return event_type
+    
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        if dt.month in [2, 5, 8, 11]:
+            return "財報"
+    except ValueError:
+        pass
+    
+    return "重要事件"
 
 
 def _get_company_name(ticker: str) -> str:
@@ -414,9 +317,14 @@ def main() -> None:
         logger.warning("No holdings found.")
         return
 
-    report = build_daily_report(holdings)
+    # Initialize financial data fetcher
+    fetcher = FinancialDataFetcher()
+
+    # Build report
+    report = build_daily_report(holdings, fetcher)
     print(report)
 
+    # Send LINE notification
     notifier = LineNotifier()
     notifier.send_push_message(report)
     logger.info("Daily report sent successfully.")
