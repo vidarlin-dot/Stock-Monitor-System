@@ -1,0 +1,32 @@
+name: Monthly Analyst Targets Update
+
+on:
+  schedule:
+    # Last day of month at 23:00 Taiwan time (UTC 15:00)
+    - cron: "0 15 28-31 * *"
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  update-targets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Update analyst targets
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+        run: |
+          python src/update_analyst_targets.py
