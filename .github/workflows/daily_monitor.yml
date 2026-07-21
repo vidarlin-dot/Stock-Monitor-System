@@ -2,8 +2,8 @@ name: Daily Stock Monitor
 
 on:
   schedule:
-    # Testing: 23:15 TW time (UTC 15:15) - will change back to 22:30 after verification
-    - cron: "15 15 * * 1-5"
+    # 台灣時間 22:00 對應的 UTC 時間
+    - cron: '0 14 * * 1-5'
   workflow_dispatch:
 
 jobs:
