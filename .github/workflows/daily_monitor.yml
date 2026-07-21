@@ -2,8 +2,8 @@ name: Daily Stock Monitor
 
 on:
   schedule:
-    # Taiwan time 22:30 = UTC 14:30, Mon-Fri (re-registered 2026-07-21 23:00)
-    - cron: "30 14 * * 1-5"
+    # Testing: 23:15 TW time (UTC 15:15) - will change back to 22:30 after verification
+    - cron: "15 15 * * 1-5"
   workflow_dispatch:
 
 jobs:
