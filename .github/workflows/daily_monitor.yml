@@ -2,33 +2,30 @@ name: Daily Stock Monitor
 
 on:
   schedule:
-    # Testing: 23:15 TW time (UTC 15:15) - will change back to 22:30 after verification
-    - cron: "15 15 * * 1-5"
+    - cron: '0 14 * * 1-5'
   workflow_dispatch:
 
 jobs:
   daily-monitor:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run daily monitor
+      - name: Run Daily Monitor
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
           SHEET_NAME: ${{ secrets.SHEET_NAME }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        run: |
-          python src/main.py
+        run: python src/main.py
