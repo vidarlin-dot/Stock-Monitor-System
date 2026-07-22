@@ -212,12 +212,15 @@ def build_daily_report(
 
             if s.get("fin_data") and s["fin_data"].get("summary"):
                 report_lines.append(f"   📊 財報摘要: {s['fin_data']['summary']}")
+
+            # NEW: Ensure earnings and sentiment lines ALWAYS appear
+            edata = s.get("earnings_data") or {}
+            report_lines.append(f"   📅 下次財報: {edata.get('next_earnings', 'TBA')} | EPS預估: {edata.get('eps_estimate', '-')}")
             
-            # Earnings & Sentiment
-            if s.get("earnings_data") and s["earnings_data"].get("next_earnings"):
-                report_lines.append(f"   📅 下次財報: {s['earnings_data']['next_earnings']} | EPS預估: {s['earnings_data']['eps_estimate']}")
-            if s.get("sentiment_data") and s["sentiment_data"].get("total_mentions", 0) > 0:
-                report_lines.append(f"   💬 散戶情緒: {s['sentiment_data']['sentiment_label']} (提及次數: {s['sentiment_data']['total_mentions']})")
+            sdata = s.get("sentiment_data") or {}
+            mentions = sdata.get("total_mentions", 0)
+            sentiment = sdata.get("sentiment_label", "N/A")
+            report_lines.append(f"   💬 散戶情緒: {sentiment} (提及次數: {mentions})")
 
             if s["notes"]:
                 report_lines.append(f"   💬 備註: {s['notes']}")
