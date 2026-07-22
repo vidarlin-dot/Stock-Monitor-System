@@ -2,10 +2,6 @@ name: Daily Stock Monitor
 
 on:
   schedule:
-<<<<<<< HEAD
-=======
-    # 台灣時間 22:00 對應的 UTC 時間
->>>>>>> e293fe4d7ed84ba3f629656f52878889562acaf4
     - cron: '0 14 * * 1-5'
   workflow_dispatch:
 
@@ -32,9 +28,5 @@ jobs:
           SHEET_NAME: ${{ secrets.SHEET_NAME }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-<<<<<<< HEAD
-        run: python src/main.py
-=======
         run: |
           python src/main.py
->>>>>>> e293fe4d7ed84ba3f629656f52878889562acaf4
