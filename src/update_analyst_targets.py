@@ -1,28 +1,38 @@
 """Monthly update of analyst targets in Google Sheets.
 
-Fetches latest analyst targets from yfinance and updates
-the portfolio sheet with new buy/sell zones.
+Runs only on the last day of the month to fetch latest yfinance analyst targets
+and update buy/sell zones in the portfolio sheet.
 """
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import sys
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import gspread
+import pytz
 import yfinance as yf
 from google.oauth2.service_account import Credentials
 
 logger = logging.getLogger(__name__)
+TW_TZ = pytz.timezone("Asia/Taipei")
+
+
+def is_last_day_of_month() -> bool:
+    """Check if today is the last day of the current month."""
+    now_tw = datetime.now(TW_TZ)
+    # Replace time with midnight for safe comparison
+    today = now_tw.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = today + timedelta(days=1)
+    return tomorrow.month != today.month
 
 
 def get_credentials() -> gspread.Client:
     """Authenticate with Google Sheets using service account."""
-    service_account_json: Optional[str] = None
-    sheet_name: Optional[str] = None
-
     import os
     service_account_json = os.environ.get("GCP_SERVICE_ACCOUNT_JSON", "")
     sheet_name = os.environ.get("SHEET_NAME", "Portfolio")
@@ -30,7 +40,6 @@ def get_credentials() -> gspread.Client:
     if not service_account_json:
         raise ValueError("GCP_SERVICE_ACCOUNT_JSON environment variable not set.")
 
-    # Strip BOM if present
     service_account_json = service_account_json.lstrip("\ufeff")
     creds_dict: Dict[str, Any] = json.loads(service_account_json)
 
@@ -38,13 +47,16 @@ def get_credentials() -> gspread.Client:
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-
     credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     return gspread.authorize(credentials), sheet_name
 
 
 def update_analyst_targets() -> None:
-    """Fetch analyst targets from yfinance and update Google Sheet."""
+    """Fetch analyst targets from yfinance and update Google Sheet on month-end."""
+    if not is_last_day_of_month():
+        logger.info("Not the last day of the month. Skipping update.")
+        return
+
     client, sheet_name = get_credentials()
     worksheet = client.open(sheet_name).worksheet("Holdings")
 
@@ -55,23 +67,23 @@ def update_analyst_targets() -> None:
 
     headers = [h.strip() for h in rows[0]]
 
-    # Find column indices
     ticker_idx = None
     buyzone_idx = None
     sellzone_idx = None
 
     for idx, h in enumerate(headers):
-        if h.lower() in ("ticker", "代碼"):
+        hl = h.lower()
+        if hl in ("ticker", "代碼"):
             ticker_idx = idx
-        elif h.lower() in ("buyzone", "買進區間"):
+        elif hl in ("buyzone", "買進區間"):
             buyzone_idx = idx
-        elif h.lower() in ("sellzone", "賣出區間"):
+        elif hl in ("sellzone", "賣出區間"):
             sellzone_idx = idx
 
     if ticker_idx is None:
         raise ValueError("Ticker column not found.")
 
-    logger.info("Starting analyst targets update...")
+    logger.info("Starting monthly analyst targets update (Last day of month confirmed)...")
 
     updated_count = 0
     skipped_count = 0
@@ -100,17 +112,14 @@ def update_analyst_targets() -> None:
                 skipped_count += 1
                 continue
 
-            # Set buy zone at low target (with 10% buffer)
             buy_zone_low = low * 0.9
             buy_zone_high = low * 0.85
             buy_zone_str = f"{buy_zone_low:.2f},{buy_zone_high:.2f}"
 
-            # Set sell zone at mean and median targets
             sell_zone_mean = mean * 1.0
             sell_zone_median = median * 1.0
             sell_zone_str = f"{sell_zone_mean:.2f},{sell_zone_median:.2f}"
 
-            # Update sheet
             if buyzone_idx is not None:
                 worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
             if sellzone_idx is not None:
@@ -130,11 +139,7 @@ def update_analyst_targets() -> None:
             logger.error("%s: Error - %s", ticker, exc)
             skipped_count += 1
 
-    logger.info(
-        "Update complete: %d updated, %d skipped",
-        updated_count,
-        skipped_count,
-    )
+    logger.info("Monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
 
 
 def main() -> None:
@@ -146,7 +151,7 @@ def main() -> None:
 
     logger.info("Monthly Analyst Targets Update starting...")
     update_analyst_targets()
-    logger.info("Monthly Analyst Targets Update completed.")
+    logger.info("Monthly Analyst Targets Update finished.")
 
 
 if __name__ == "__main__":
