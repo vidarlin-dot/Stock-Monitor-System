@@ -237,7 +237,7 @@ def update_analyst_targets() -> None:
                 existing_notes_row = rows[i - 1]
                 existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ''
 
-                placeholders = ["見備註", "see notes", "(見備註)", "N/A", "", "N/A", "—"]
+                placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "—"]
                 is_placeholder = existing_notes in placeholders
                 
                 import re
