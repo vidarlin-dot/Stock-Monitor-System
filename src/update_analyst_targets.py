@@ -237,40 +237,34 @@ def update_analyst_targets() -> None:
                 existing_notes_row = rows[i - 1]
                 existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ''
 
-                # Only auto-update if current notes are empty/unhelpful
-                common_empty = ["\u898b\u5099\u8a3b", "see notes", "(\u898b\u5099\u8a3b)", "N/A", "", "N/A", "\u2014"]
-                if existing_notes not in common_empty:
-                    logger.info("%s: Keeping existing notes: %s", ticker, existing_notes)
-                else:
+                placeholders = ["見備註", "see notes", "(見備註)", "N/A", "", "N/A", "—"]
+                is_placeholder = existing_notes in placeholders
+                
+                import re
+                is_auto_pattern = bool(re.search(r"\(\d+\u4f4d\)", existing_notes))
+
+                
+                should_update = False
+                update_reason = ""
+                
+                if is_placeholder:
+                    should_update = True
+                    update_reason = "empty placeholder"
+                elif is_auto_pattern and summary_note != existing_notes:
+                    should_update = True
+                    update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
+                
+                if should_update:
                     worksheet.update_cell(i, notes_idx + 1, summary_note)
-                    logger.info("%s: Updated notes to: %s", ticker, summary_note)
-
-            ts = datetime.now().isoformat()
-
-            # Update zones and notes
-            if buyzone_idx is not None:
-                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
-            if sellzone_idx is not None:
-                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
-
-            if notes_idx is not None:
-                news_list = []
-                if hasattr(stock, "news") and stock.news:
-                    news_list = stock.news[:5]
-                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
-                existing_notes_row = rows[i - 1]
-                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ""
-                common_empty = ["見備註", "see notes", "(見備註)", "N/A", "", "N/A", "—"]
-                if existing_notes not in common_empty:
-                    logger.info("%s: Keeping existing notes: %s", ticker, existing_notes)
+                    logger.info("%s: Updated notes (%s): %s -> %s", 
+                        ticker, update_reason, repr(existing_notes), repr(summary_note))
                 else:
-                    worksheet.update_cell(i, notes_idx + 1, summary_note)
-                    logger.info("%s: Updated notes to: %s", ticker, summary_note)
+                    logger.info("%s: Preserving manual remarks (len=%d): %s", 
+                        ticker, len(existing_notes), repr(existing_notes))
 
-            # Write timestamp
+            # Update timestamp
             if updated_idx is not None:
-                worksheet.update_cell(i, updated_idx + 1, ts)
-                logger.debug("%s: Timestamp updated to %s", ticker, ts)
+                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
 
             logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)",
                 ticker, buy_zone_str, sell_zone_str, analysts, rec_key)

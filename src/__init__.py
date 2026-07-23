@@ -1,1 +1,1 @@
-﻿
+﻿# Stock Monitor System package
