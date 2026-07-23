@@ -245,9 +245,32 @@ def update_analyst_targets() -> None:
                     worksheet.update_cell(i, notes_idx + 1, summary_note)
                     logger.info("%s: Updated notes to: %s", ticker, summary_note)
 
-            # Update timestamp
+            ts = datetime.now().isoformat()
+
+            # Update zones and notes
+            if buyzone_idx is not None:
+                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
+            if sellzone_idx is not None:
+                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
+
+            if notes_idx is not None:
+                news_list = []
+                if hasattr(stock, "news") and stock.news:
+                    news_list = stock.news[:5]
+                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
+                existing_notes_row = rows[i - 1]
+                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ""
+                common_empty = ["見備註", "see notes", "(見備註)", "N/A", "", "N/A", "—"]
+                if existing_notes not in common_empty:
+                    logger.info("%s: Keeping existing notes: %s", ticker, existing_notes)
+                else:
+                    worksheet.update_cell(i, notes_idx + 1, summary_note)
+                    logger.info("%s: Updated notes to: %s", ticker, summary_note)
+
+            # Write timestamp
             if updated_idx is not None:
-                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
+                worksheet.update_cell(i, updated_idx + 1, ts)
+                logger.debug("%s: Timestamp updated to %s", ticker, ts)
 
             logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)",
                 ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
