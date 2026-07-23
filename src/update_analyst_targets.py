@@ -160,6 +160,7 @@ def update_analyst_targets() -> None:
     buyzone_idx = None
     sellzone_idx = None
     notes_idx = None
+    analyst_comment_idx = None  # New column for auto-generated analyst commentary
     updated_idx = None
 
     for idx, h in enumerate(headers):
@@ -172,6 +173,8 @@ def update_analyst_targets() -> None:
             sellzone_idx = idx
         elif hl in ("notes", "\u5099\u8a3b"):
             notes_idx = idx
+        elif hl in ("analyst_comment", "\u5206\u6790\u5e08\u8a55\u8ad6", "\u5206\u6790\u5e08\u898b\u89e3"):
+            analyst_comment_idx = idx
         elif hl in ("updated", "\u66f4\u65b0\u6642\u9593"):
             updated_idx = idx
 
@@ -261,6 +264,16 @@ def update_analyst_targets() -> None:
                 else:
                     logger.info("%s: Preserving manual remarks (len=%d): %s", 
                         ticker, len(existing_notes), repr(existing_notes))
+
+            # --- NEW: Always update analyst comment column (analyst_comment) ---
+            # This is separate from Notes column - analyst comments are fresh insights from analysts
+            if analyst_comment_idx is not None:
+                news_list = []
+                if hasattr(stock, "news") and stock.news:
+                    news_list = stock.news[:5]
+                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
+                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
+                logger.debug("%s: Updated analyst_comment to: %s", ticker, new_summary)
 
             # Update timestamp
             if updated_idx is not None:
