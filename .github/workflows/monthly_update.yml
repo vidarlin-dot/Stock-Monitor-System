@@ -1,16 +1,13 @@
-﻿name: Monthly Analyst Targets Update
+name: Monthly Analyst Targets Update
 
 on:
   schedule:
-    # Run at UTC 15:30 (Taiwan 23:30) on days 28-31 of each month
-    # The Python script will skip if not last day
-    - cron: "30 15 28-31 * *"
+    - cron: '30 15 28-31 * *'
   workflow_dispatch:
 
 jobs:
   monthly-update-targets:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

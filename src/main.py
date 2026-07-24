@@ -42,23 +42,23 @@ def build_daily_report(
         else:
             last_trading_date = (today_naive - timedelta(days=days_since_fri - 1)).strftime("%m-%d")
 
-    W = "\U0001f4c8"  # chart
-    E = "⚠️"  # warning
+    W = chr(0x1F4C8)
+    E = chr(0x26A0) + chr(0xFE0F)
     report_lines: List[str] = [
-        f"{W} 美股投資策略日報 | {date_str}",
+        f"{W} \u7f8e\u80a1\u6295\u8cc7\u7b56\u7565\u65e5\u5831 | {date_str}",
     ]
 
     if is_weekend:
         report_lines.append(
-            f"{E} 注：週末休市，以下為上週五 ({last_trading_date}) 收盤參考價"
+            f"{E} \u8a3b\uff1a\u9031\u672b\u4f11\u5e02\uff0c\u4ee5\u4e0b\u70ba\u4e0a\u9031\u4e94 ({last_trading_date}) \u6536\u76e4\u53c3\u8003\u50f9"
         )
     else:
-        report_lines.append(f"{E} 注：為實時交易時段訊息")
+        report_lines.append(f"{E} \u8a3b\uff1a\u70ba\u5be6\u6642\u4ea4\u6613\u6642\u6bb5\u6d88\u606f")
 
     report_lines.append("=" * 40)
 
-    major_events_list: List[Dict[str, Any]] = []
     urgent_stocks: List[Dict[str, Any]] = []
+    major_events_list: List[Dict[str, Any]] = []
 
     for h in holdings_data:
         stock_entry = _process_holding(h, fetcher)
@@ -79,95 +79,60 @@ def build_daily_report(
             has_urgent = True
 
         catalyst_raw = stock_entry.get("catalyst_raw", "")
+        analyst_comment = stock_entry.get("analyst_comment", "")
         stock_entry["major_events_info"] = ""
+        stock_entry["upcoming_event"] = ""
         has_major_event = False
         if catalyst_raw:
             dates = [d.strip() for d in str(catalyst_raw).split(",") if d.strip()]
             event_details: List[str] = []
             for cd in dates:
                 try:
-                    event_dt = datetime.strptime(cd, "%Y-%m-%d")
+                    event_dt = datetime.strptime(cd, "%Y-%m-%d").replace(tzinfo=None)
                     today_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                     delta = (event_dt - today_naive).days
-                    if 0 <= delta <= 14:
+                    if 0 <= delta <= 30:
                         event_type = classify_catalyst(cd, stock_entry.get("notes", ""))
-                        icon = "\U0001f514" if delta <= 7 else "\U0001f4c6"
-                        evt_line = (f"\U0001f4c5 事件：{event_type} ({cd}) "
-                                    f"[{icon} 倒數 {delta} 天]")
+                        icon = chr(0x1F514) if delta <= 7 else chr(0x1F4C5)
+                        evt_line = (f"{chr(0x1F4C5)} \u4e8b\u4ef6\uff1a{event_type} ({cd}) "
+                                    f"[{icon} \u5012\u6578 {delta} \u5929]")
                         if delta == 0:
-                            evt_line += " [\U0001f525 今天!]"
+                            evt_line += f" [{chr(0x1F525)} \u4eca\u5929!]"
+                        elif delta <= 1:
+                            evt_line += f" [{chr(0x1F50D)} \u660e\u5929!]"
                         event_details.append(evt_line)
                         has_major_event = True
                 except ValueError:
                     pass
-            stock_entry["major_events_info"] = "\n".join(event_details)
+            stock_entry["major_events_info"] = chr(10).join(event_details)
+
+        if event_details:
+            stock_entry["upcoming_event"] = event_details[0]
 
         if has_urgent:
             triggers = []
             if buy_triggered:
-                triggers.append("✅ 触触触買進：已落入買進區間")
+                triggers.append(f"{chr(0x2705)} \u8cb7\u9032\u8a0a\u865f\uff1a\u5df2\u843d\u5165\u8cb7\u9032\u5340\u9593")
             if sell_triggered:
-                triggers.append("\U0001f534 觸發賣出：已高於賣出區間")
+                triggers.append(f"{chr(0x1F534)} \u8ca3\u51fa\u8a0a\u865f\uff1a\u5df2\u9ad8\u65bc\u8ca3\u51fa\u5340\u9593")
             if stop_loss_triggered:
-                triggers.append("\U0001f6a8 触發停損：損失超過 10%")
+                triggers.append(f"{chr(0x1F6A8)} \u505c\u640d\u8a0a\u865f\uff1a\u640d\u5931\u8d85\u904e 10%")
             stock_entry["trigger_reasons"] = triggers
             urgent_stocks.append(stock_entry)
         elif has_major_event:
             major_events_list.append(stock_entry)
 
-    # Urgent section
     report_lines.append("")
-    report_lines.append("\U0001f6a8 【需立即行動】 (觸發買進/賣出/停損/重大事件)")
+    report_lines.append(f"{chr(0x1F6A8)} [\u9700\u7acb\u5373\u884c\u52d5] (\u89f8\u767c\u8cb7\u9032/\u8ca3\u51fa/\u505c\u640d/\u91cd\u5927\u4e8b\u4ef6)")
     report_lines.append("-" * 40)
 
     if urgent_stocks or major_events_list:
         for s in urgent_stocks + major_events_list:
             _add_stock_block(report_lines, s)
     else:
-        report_lines.append("✅ 當前沒有需要立即行動的持股。")
+        report_lines.append(f"{chr(0x2705)} \u7576\u524d\u6c92\u6709\u9700\u8981\u7acb\u5373\u884c\u52d5\u7684\u6301\u80a1\u3002")
 
-    # Future events 14-30 days out
-    future_events: List[Dict[str, Any]] = []
-    for h in holdings_data:
-        se = _process_holding(h, fetcher)
-        if se is None:
-            continue
-        cat_raw = se.get("catalyst_raw", "")
-        if cat_raw:
-            dates = [d.strip() for d in str(cat_raw).split(",") if d.strip()]
-            for cd in dates:
-                try:
-                    event_dt = datetime.strptime(cd, "%Y-%m-%d")
-                    today_naive = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                    delta = (event_dt - today_naive).days
-                    if 14 < delta <= 30:
-                        event_type = classify_catalyst(cd, se.get("notes", ""))
-                        se["upcoming_event"] = f"{event_type} ({cd}, 倒數{delta}天)"
-                        future_events.append(se)
-                except ValueError:
-                    pass
-
-    if future_events:
-        report_lines.append("")
-        report_lines.append("\U0001f4c5 【重大事件提醒】 (未來 30 天內)")
-        report_lines.append("-" * 40)
-        for s in future_events:
-            if "upcoming_event" in s:
-                report_lines.append(f"⚠️ {s['ticker']} ({s['company_name']}) | {s['upcoming_event']}")
-        report_lines.append("")
-
-    # Footer
-    report_lines.append("=" * 40)
-    report_lines.append(
-        "⚙️ 系統狀態：資料更新成功 | "
-        "下次執行：每週一~五 22:00 (臺灣時間)"
-    )
-    report_lines.append(
-        "⚠️ 免責聲明：本日報由系統自動生成，"
-        "僅供操作參考，請自行確認市場流動性與風險。"
-    )
-
-    return "\n".join(report_lines)
+    return chr(10).join(report_lines)
 
 
 def _process_holding(
@@ -175,18 +140,19 @@ def _process_holding(
     fetcher: FinancialDataFetcher,
 ) -> Optional[Dict[str, Any]]:
     """Process a single holding row and enrich it with market data."""
-    ticker = str(h.get("ticker", h.get("代碼", ""))).strip().upper()
+    ticker = str(h.get("ticker", h.get("\u4ee3\u78bc", ""))).strip().upper()
     if not ticker:
         return None
 
-    shares = float(h.get("shares", h.get("股數", 0)))
-    avg_cost = float(h.get("avgcost", h.get("均價", 0)))
-    buy_zone_raw = str(h.get("buyzone", h.get("買進區間", "")))
-    sell_zone_raw = str(h.get("sellzone", h.get("賣出區間", "")))
-    catalyst_raw = str(h.get("catalystdate", h.get("催化劇日期", "")))
-    notes = str(h.get("notes", h.get("備註", ""))).strip()
+    shares = float(h.get("shares", h.get("\u80a1\u6578", 0)))
+    avg_cost = float(h.get("avgcost", h.get("\u5747\u50f9", 0)))
+    buy_zone_raw = str(h.get("buyzone", h.get("\u8cb7\u76df\u5340\u9593", "")))
+    sell_zone_raw = str(h.get("sellzone", h.get("\u8ca3\u51fa\u5340\u9593", "")))
+    catalyst_raw = str(h.get("catalystdate", h.get("\u50ac\u5316\u5287\u65e5\u671f", "")))
+    notes = str(h.get("notes", h.get("\u5099\u8a3b", ""))).strip()
+    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", ""))).strip()
 
-    common_notes = ["見備註", "see notes", "(見備註)", "N/A", "", "N/A", "—"]
+    common_notes = ["\u898b\u5099\u8a3b", "see notes", "(\u898b\u5099\u8a3b)", "N/A", "", "\u2014"]
     if notes in common_notes:
         notes = ""
 
@@ -237,6 +203,7 @@ def _process_holding(
         "sell_zones": sell_zones,
         "catalyst_raw": catalyst_raw,
         "notes": notes,
+        "analyst_comment": analyst_comment,
         "fin_data": fin_data,
         "earnings_data": earnings_data,
         "sentiment_data": sentiment_data,
@@ -253,13 +220,13 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     pnl_pct = s["pnl_pct"]
     total_pnl = s["total_pnl"]
 
-    lines.append(f"📉 {ticker} ({company})")
+    lines.append(f"{chr(0x1F4C9)} {ticker} ({company})")
     lines.append(
-        f"   💰 持股：{shares_count}股 | "
-        f"均價：${ac:.2f} | "
-        f"損益：${total_pnl:+,.2f} ({pnl_pct:+.1f}%)"
+        f"   {chr(0x1F4B0)} \u6301\u80a1\uff1a{shares_count}\u80a1 | "
+        f"\u5747\u50f9\uff1a${ac:.2f} | "
+        f"\u640d\u76ca\uff1a${total_pnl:+,.2f} ({pnl_pct:+.1f}%)"
     )
-    lines.append(f"   📂 當前價：${cp:.2f}")
+    lines.append(f"   {chr(0x1F4C2)} \u7576\u524d\u50f9\uff1a${cp:.2f}")
 
     trigger_reasons = s.get("trigger_reasons", [])
     for reason in trigger_reasons:
@@ -270,39 +237,39 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
 
     if buy_zones:
         zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
-        lines.append(f"   ⇣ 買進區間：{zone_str}")
+        lines.append(f"   {chr(0x21E3)} \u8cb7\u9032\u5340\u9593\uff1a{zone_str}")
 
     if sell_zones:
         zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
-        lines.append(f"   ⇡ 賣出區間：{zone_str}")
+        lines.append(f"   {chr(0x21E0)} \u8ca3\u51fa\u5340\u9593\uff1a{zone_str}")
 
     evt_info = s.get("major_events_info", "")
     if evt_info:
-        for eline in evt_info.split("\n"):
+        for eline in evt_info.split(chr(10)):
             lines.append(f"   {eline}")
 
-    upcoming = s.get("upcoming_event", "")
-    if upcoming:
-        lines.append(f"   ⚠️ 重大事件：{upcoming}")
+    analyst_comment = s.get("analyst_comment", "")
+    if analyst_comment:
+        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u898b\u89e3\uff1a{analyst_comment}")
 
     fin_data = s.get("fin_data")
     if fin_data and fin_data.get("summary"):
         summary_text = fin_data.get("summary", "")
-        lines.append(f"   📰 財務要點：{summary_text}")
+        lines.append(f"   {chr(0x1F4F0)} \u8ca1\u52d9\u8981\u9ede\uff1a{summary_text}")
 
     edata = s.get("earnings_data") or {}
     next_earn = edata.get("next_earnings", "TBA")
     eps_est = edata.get("eps_estimate", "N/A")
-    lines.append(f"   📅 下次財報：{next_earn} | EPS預估：{eps_est}")
+    lines.append(f"   {chr(0x1F4C5)} \u4e0b\u6b21\u8ca1\u5831\uff1a{next_earn} | EPS\u9810\u671f\uff1a{eps_est}")
 
     sdata = s.get("sentiment_data") or {}
     mentions = sdata.get("total_mentions", 0)
-    sent_label = sdata.get("sentiment_label", "訊息不足")
-    lines.append(f"   💬 散戶情緒：{sent_label} (提及次數：{mentions})")
+    sent_label = sdata.get("sentiment_label", "\u8a0a\u606f\u4e0d\u8db3")
+    lines.append(f"   {chr(0x1F4AC)} \u6563\u6236\u60c5\u7dd2\uff1a{sent_label} (\u63d0\u53ca\u6b21\u6578\uff1a{mentions})")
 
     notes = s.get("notes", "")
     if notes:
-        lines.append(f"   📝 備註：{notes}")
+        lines.append(f"   {chr(0x1F4DD)} \u5099\u8a3b\uff1a{notes}")
 
     lines.append("")
 
@@ -312,13 +279,13 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
     notes_lower = notes.lower() if notes else ""
 
     keywords: Dict[str, List[str]] = {
-        "財報": ["財報", "earnings", "quarterly", "q1", "q2", "q3", "q4", "季報"],
-        "FDA審批": ["fda", "審批", "regulatory", "nda", "bla"],
-        "臨庫數據": ["phase 3", "phase ii", "phase i", "數據", "readout", "data"],
-        "量產": ["量產", "production", "manufacturing", "launch"],
-        "合作伺戶": ["合作", "partnership", "collaboration", "alliance"],
-        "上市": ["ipo", "listing", "上市"],
-        "分析師調整": ["upgrade", "downgrade", "rating", "調整"],
+        "\u8ca1\u5831": ["\u8ca1\u5831", "earnings", "quarterly", "q1", "q2", "q3", "q4", "\u5b63\u5831"],
+        "FDA\u5be9\u6279": ["fda", "\u5be9\u6279", "regulatory", "nda", "bla"],
+        "\u81e8\u5eb7\u6578\u64da": ["phase 3", "phase ii", "phase i", "\u6578\u64da", "readout", "data"],
+        "\u91cf\u7522": ["\u91cf\u7522", "production", "manufacturing", "launch"],
+        "\u5408\u4f5c\u5ba2\u6236": ["\u5408\u4f5c", "partnership", "collaboration", "alliance"],
+        "\u4e0a\u5e02": ["ipo", "listing", "\u4e0a\u5e02"],
+        "\u5206\u6790\u5e08\u8abf\u6574": ["upgrade", "downgrade", "rating", "\u8abf\u6574"],
     }
 
     for event_type, kws in keywords.items():
@@ -328,11 +295,11 @@ def classify_catalyst(date_str: str, notes: str = "") -> str:
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         if dt.month in [2, 5, 8, 11]:
-            return "財報"
+            return "\u8ca1\u5831"
     except ValueError:
         pass
 
-    return "其他事件"
+    return "\u5176\u4ed6\u4e8b\u4ef6"
 
 
 def _get_company_name(ticker: str) -> str:
@@ -341,13 +308,13 @@ def _get_company_name(ticker: str) -> str:
         "BEAM": "Beam Therapeutics",
         "NVDA": "NVIDIA",
         "GOOG": "Alphabet (Google)",
-        "TSM": "臺灣電單",
+        "TSM": "\u53f0\u96fb\u7a4d",
         "AMD": "Advanced Micro Devices",
         "IONQ": "IonQ Inc.",
         "GLW": "Corning",
         "MU": "Micron Technology",
         "MRVL": "Marvell Technology",
-        "ONDS": "Oncose",
+        "ONDS": "Oncology Systems",
         "RCAT": "Red Cat Holdings",
         "SKHY": "SK Hynix Inc.",
         "SNDK": "SanDisk Corp",
@@ -356,6 +323,7 @@ def _get_company_name(ticker: str) -> str:
         "APP": "AppLovin Corp",
         "LITE": "Lumentum Holdings",
         "NVO": "Novo Nordisk",
+        "EWY": "iShares MSCI South Korea ETF",
     }
     return names.get(ticker, ticker)
 
@@ -367,14 +335,14 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    logger.info("総綱系統——日報執行中...")
+    logger.info("Stock Monitor - Daily Report starting...")
 
     manager = GoogleSheetsManager()
     data = manager.load_config()
     holdings = data["holdings"]
 
     if not holdings:
-        logger.warning("無持股資料，中止執行。")
+        logger.warning("No holdings data, aborting.")
         sys.exit(0)
 
     fetcher = FinancialDataFetcher()
@@ -384,8 +352,9 @@ def main() -> None:
 
     notifier = LineNotifier()
     notifier.send_push_message(report)
-    logger.info("日報推撲成功。")
+    logger.info("Daily report pushed successfully.")
 
 
 if __name__ == "__main__":
     main()
+
