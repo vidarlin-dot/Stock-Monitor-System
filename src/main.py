@@ -50,7 +50,7 @@ def build_daily_report(
 
     if is_weekend:
         report_lines.append(
-            f"{E} 注：週末休市，以下為上週五 ({last_trading_date}) 收盤參考価"
+            f"{E} 注：週末休市，以下為上週五 ({last_trading_date}) 收盤參考價"
         )
     else:
         report_lines.append(f"{E} 注：為實時交易時段訊息")
@@ -105,9 +105,9 @@ def build_daily_report(
         if has_urgent:
             triggers = []
             if buy_triggered:
-                triggers.append("✅ 触發買盟：已落入買盟區間")
+                triggers.append("✅ 触触触買進：已落入買進區間")
             if sell_triggered:
-                triggers.append("\U0001f534 触發貣出盟：已高於貣出區間")
+                triggers.append("\U0001f534 觸發賣出：已高於賣出區間")
             if stop_loss_triggered:
                 triggers.append("\U0001f6a8 触發停損：損失超過 10%")
             stock_entry["trigger_reasons"] = triggers
@@ -117,7 +117,7 @@ def build_daily_report(
 
     # Urgent section
     report_lines.append("")
-    report_lines.append("\U0001f6a8 【需立即行動】 (触發買貣/停損/重大事件)")
+    report_lines.append("\U0001f6a8 【需立即行動】 (觸發買進/賣出/停損/重大事件)")
     report_lines.append("-" * 40)
 
     if urgent_stocks or major_events_list:
@@ -160,7 +160,7 @@ def build_daily_report(
     report_lines.append("=" * 40)
     report_lines.append(
         "⚙️ 系統狀態：資料更新成功 | "
-        "下次執行：毎週一~五 22:00 (臺灣時間)"
+        "下次執行：每週一~五 22:00 (臺灣時間)"
     )
     report_lines.append(
         "⚠️ 免責聲明：本日報由系統自動生成，"
@@ -181,8 +181,8 @@ def _process_holding(
 
     shares = float(h.get("shares", h.get("股數", 0)))
     avg_cost = float(h.get("avgcost", h.get("均價", 0)))
-    buy_zone_raw = str(h.get("buyzone", h.get("買盟區間", "")))
-    sell_zone_raw = str(h.get("sellzone", h.get("貣出區間", "")))
+    buy_zone_raw = str(h.get("buyzone", h.get("買進區間", "")))
+    sell_zone_raw = str(h.get("sellzone", h.get("賣出區間", "")))
     catalyst_raw = str(h.get("catalystdate", h.get("催化劇日期", "")))
     notes = str(h.get("notes", h.get("備註", ""))).strip()
 
@@ -253,13 +253,13 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     pnl_pct = s["pnl_pct"]
     total_pnl = s["total_pnl"]
 
-    lines.append(f"\U0001f4c9 {ticker} ({company})")
+    lines.append(f"📉 {ticker} ({company})")
     lines.append(
-        f"   \U0001f4b0 持仓：{shares_count}股 | "
-        f"均价： | "
-        f"損益： ({pnl_pct:+.1f}%)"
+        f"   💰 持股：{shares_count}股 | "
+        f"均價：${ac:.2f} | "
+        f"損益：${total_pnl:+,.2f} ({pnl_pct:+.1f}%)"
     )
-    lines.append(f"   \U0001f4c2 當前価：")
+    lines.append(f"   📂 當前價：${cp:.2f}")
 
     trigger_reasons = s.get("trigger_reasons", [])
     for reason in trigger_reasons:
@@ -269,12 +269,12 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     sell_zones = s.get("sell_zones", [])
 
     if buy_zones:
-        zone_str = ", ".join(f"" for bz in buy_zones)
-        lines.append(f"   ⇣ 買盟區間：{zone_str}")
+        zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
+        lines.append(f"   ⇣ 買進區間：{zone_str}")
 
     if sell_zones:
-        zone_str = ", ".join(f"" for sz in sell_zones)
-        lines.append(f"   ⇡ 貣出區間：{zone_str}")
+        zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
+        lines.append(f"   ⇡ 賣出區間：{zone_str}")
 
     evt_info = s.get("major_events_info", "")
     if evt_info:
@@ -283,25 +283,26 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
 
     upcoming = s.get("upcoming_event", "")
     if upcoming:
-        lines.append(f"   ⚠️ 上幂事件：{upcoming}")
+        lines.append(f"   ⚠️ 重大事件：{upcoming}")
 
     fin_data = s.get("fin_data")
     if fin_data and fin_data.get("summary"):
-        lines.append(f"   \U0001f4f0 財務要點：{fin_data['summary']}")
+        summary_text = fin_data.get("summary", "")
+        lines.append(f"   📰 財務要點：{summary_text}")
 
     edata = s.get("earnings_data") or {}
     next_earn = edata.get("next_earnings", "TBA")
     eps_est = edata.get("eps_estimate", "N/A")
-    lines.append(f"   \U0001f4c5 下次財報：{next_earn} | EPS預設：{eps_est}")
+    lines.append(f"   📅 下次財報：{next_earn} | EPS預估：{eps_est}")
 
     sdata = s.get("sentiment_data") or {}
     mentions = sdata.get("total_mentions", 0)
     sent_label = sdata.get("sentiment_label", "訊息不足")
-    lines.append(f"   \U0001f4ac 散戶情綴：{sent_label} (提及次數：{mentions})")
+    lines.append(f"   💬 散戶情緒：{sent_label} (提及次數：{mentions})")
 
     notes = s.get("notes", "")
     if notes:
-        lines.append(f"   \U0001f4dd 備註：{notes}")
+        lines.append(f"   📝 備註：{notes}")
 
     lines.append("")
 
