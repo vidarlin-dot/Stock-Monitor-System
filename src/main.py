@@ -106,8 +106,8 @@ def build_daily_report(
                     pass
             stock_entry["major_events_info"] = chr(10).join(event_details)
 
-        if event_details:
-            stock_entry["upcoming_event"] = event_details[0]
+        if stock_entry["major_events_info"]:
+            stock_entry["upcoming_event"] = stock_entry["major_events_info"].split(chr(10))[0]
 
         if has_urgent:
             triggers = []
