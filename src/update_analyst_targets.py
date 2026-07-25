@@ -141,9 +141,8 @@ def update_analyst_targets() -> None:
     2. Sell zone (based on mean/median target prices)
     3. Notes column (analyst rating summary)
     """
-    if not is_last_day_of_month():
-        logger.info("Not the last day of the month. Skipping update.")
-        return
+    # Always run: update analyst comments daily
+    # Buy/Sell zones are only updated on last day of month
 
     client, sheet_name = get_credentials()
     worksheet = client.open(sheet_name).worksheet("Holdings")
@@ -206,8 +205,28 @@ def update_analyst_targets() -> None:
             analysts = info.get("numberOfAnalystOpinions", 0)
             rec_key = info.get("recommendationKey", "")
 
+            is_month_end = is_last_day_of_month()
+            
+            # --- Always update analyst comment column (analyst_comment) ---
+            if analyst_comment_idx is not None:
+                news_list = []
+                if hasattr(stock, "news") and stock.news:
+                    news_list = stock.news[:5]
+                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
+                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
+                logger.info("%s: Updated analyst_comment to: %s", ticker, new_summary)
+            
+            # Update timestamp always
+            if updated_idx is not None:
+                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
+            
+            # --- Only update buy/sell zones on last day of month ---
+            if not is_month_end:
+                updated_count += 1
+                continue
+            
             if not mean or not low or not high:
-                logger.debug("%s: No analyst data available", ticker)
+                logger.debug("%s: No analyst data available for zone update", ticker)
                 skipped_count += 1
                 continue
 
@@ -266,19 +285,6 @@ def update_analyst_targets() -> None:
                         ticker, len(existing_notes), repr(existing_notes))
 
             # --- NEW: Always update analyst comment column (analyst_comment) ---
-            # This is separate from Notes column - analyst comments are fresh insights from analysts
-            if analyst_comment_idx is not None:
-                news_list = []
-                if hasattr(stock, "news") and stock.news:
-                    news_list = stock.news[:5]
-                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
-                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
-                logger.debug("%s: Updated analyst_comment to: %s", ticker, new_summary)
-
-            # Update timestamp
-            if updated_idx is not None:
-                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
-
             logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)",
                 ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
 
