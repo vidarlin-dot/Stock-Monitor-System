@@ -114,7 +114,7 @@ def build_daily_report(
             if buy_triggered:
                 triggers.append(f"{chr(0x2705)} \u8cb7\u9032\u8a0a\u865f\uff1a\u5df2\u843d\u5165\u8cb7\u9032\u5340\u9593")
             if sell_triggered:
-                triggers.append(f"{chr(0x1F534)} \u8ca3\u51fa\u8a0a\u865f\uff1a\u5df2\u9ad8\u65bc\u8ca3\u51fa\u5340\u9593")
+                triggers.append(f"{chr(0x1F534)} \u8ce3\u51fa\u8a0a\u865f\uff1a\u5df2\u9ad8\u65bc\u8ce3\u51fa\u5340\u9593")
             if stop_loss_triggered:
                 triggers.append(f"{chr(0x1F6A8)} \u505c\u640d\u8a0a\u865f\uff1a\u640d\u5931\u8d85\u904e 10%")
             stock_entry["trigger_reasons"] = triggers
@@ -123,7 +123,7 @@ def build_daily_report(
             major_events_list.append(stock_entry)
 
     report_lines.append("")
-    report_lines.append(f"{chr(0x1F6A8)} [\u9700\u7acb\u5373\u884c\u52d5] (\u89f8\u767c\u8cb7\u9032/\u8ca3\u51fa/\u505c\u640d/\u91cd\u5927\u4e8b\u4ef6)")
+    report_lines.append(f"{chr(0x1F6A8)} [\u9700\u7acb\u5373\u884c\u52d5] (\u89f8\u767c\u8cb7\u9032/\u8ce3\u51fa/\u505c\u640d/\u91cd\u5927\u4e8b\u4ef6)")
     report_lines.append("-" * 40)
 
     if urgent_stocks or major_events_list:
@@ -147,7 +147,7 @@ def _process_holding(
     shares = float(h.get("shares", h.get("\u80a1\u6578", 0)))
     avg_cost = float(h.get("avgcost", h.get("\u5747\u50f9", 0)))
     buy_zone_raw = str(h.get("buyzone", h.get("\u8cb7\u76df\u5340\u9593", "")))
-    sell_zone_raw = str(h.get("sellzone", h.get("\u8ca3\u51fa\u5340\u9593", "")))
+    sell_zone_raw = str(h.get("sellzone", h.get("\u8ce3\u51fa\u5340\u9593", "")))
     catalyst_raw = str(h.get("catalystdate", h.get("\u50ac\u5316\u5287\u65e5\u671f", "")))
     notes = str(h.get("notes", h.get("\u5099\u8a3b", ""))).strip()
     analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", ""))).strip()
@@ -241,7 +241,7 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
 
     if sell_zones:
         zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
-        lines.append(f"   {chr(0x21E0)} \u8ca3\u51fa\u5340\u9593\uff1a{zone_str}")
+        lines.append(f"   {chr(0x21E0)} \u8ce3\u51fa\u5340\u9593\uff1a{zone_str}")
 
     evt_info = s.get("major_events_info", "")
     if evt_info:
