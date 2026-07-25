@@ -348,6 +348,53 @@ def main() -> None:
     fetcher = FinancialDataFetcher()
     report = build_daily_report(holdings, fetcher)
 
+    # Update Google Sheets with latest daily info
+    for h in holdings:
+        ticker = str(h.get("ticker", h.get("\u4ee3\u78bc", ""))).strip().upper()
+        if not ticker:
+            continue
+        try:
+            stock = yf.Ticker(ticker)
+            cal = stock.calendar
+            earnings_str = ""
+            eps_est = "N/A"
+            next_earn_raw = cal.get("Earnings Date", [None])[0] if cal else None
+            if next_earn_raw is not None:
+                if isinstance(next_earn_raw, str):
+                    earnings_str = next_earn_raw.split(" (")[0].strip()
+                elif hasattr(next_earn_raw, "strftime"):
+                    earnings_str = next_earn_raw.strftime("%Y-%m-%d")
+            info = stock.info
+            eps_avg = cal.get("Earnings Average") if cal else None
+            if eps_avg is not None:
+                eps_est = f""
+            sentiment = "訊息不足 (中性)"
+            news_items = stock.news[:5] if hasattr(stock, "news") and stock.news else []
+            if news_items:
+                score = 0
+                for item in news_items:
+                    title = ""
+                    if isinstance(item.get("content"), dict):
+                        title = item["content"].get("title", "") or ""
+                    elif item.get("title"):
+                        title = item.get("title", "")
+                    tl = title.lower()
+                    pos_kw = ["beat", "surge", "upgrade", "buy", "growth", "profit", "record", "strong", "bullish"]
+                    neg_kw = ["miss", "plunge", "downgrade", "sell", "loss", "warn", "decline", "weak", "bearish"]
+                    if any(kw in tl for kw in pos_kw):
+                        score += 1
+                    if any(kw in tl for kw in neg_kw):
+                        score -= 1
+                if score >= 3:
+                    sentiment = "偏多 🟢"
+                elif score <= -3:
+                    sentiment = "偏空 🔴"
+                else:
+                    sentiment = "中性 ⚪"
+            manager.update_daily_info(ticker, earnings_str, eps_est, sentiment)
+        except Exception as exc:
+            logger.debug("Failed to update daily info for %s: %s", ticker, exc)
+
     print(report)
 
     notifier = LineNotifier()
