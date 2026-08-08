@@ -108,3 +108,17 @@ GitHub Actions (每週一至五 美東 16:05)
 - 所有敏感資訊（API Keys、Service Account JSON）皆透過環境變數注入，絕不硬編碼。
 - GitHub Actions 執行環境為 Ubuntu，無需本地 Windows 設定。
 - yfinance 資料為延遲報價，僅供參考，不作為即時交易依據。
+
+---
+
+## Testing
+
+Run the mock report test:
+
+\\\ash
+python tests/test_mock_report.py
+\\\
+
+This will show a sample report preview with mock data.
+
+---
