@@ -22,6 +22,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Update Analyst Targets (Daily)
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+        run: |
+          python src/update_analyst_targets.py
+
       - name: Run Daily Monitor
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
