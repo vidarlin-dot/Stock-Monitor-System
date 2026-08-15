@@ -59,6 +59,7 @@ def build_daily_report(
 
     urgent_stocks: List[Dict[str, Any]] = []
     major_events_list: List[Dict[str, Any]] = []
+    all_stocks: List[Dict[str, Any]] = []
 
     for h in holdings_data:
         stock_entry = _process_holding(h, fetcher)
@@ -121,16 +122,17 @@ def build_daily_report(
             urgent_stocks.append(stock_entry)
         elif has_major_event:
             major_events_list.append(stock_entry)
+        else:
+            # All non-urgent stocks with analyst comments go here
+            all_stocks.append(stock_entry)
 
     report_lines.append("")
     report_lines.append(f"{chr(0x1F6A8)} [\u9700\u7acb\u5373\u884c\u52d5] (\u89f8\u767c\u8cb7\u9032/\u8ce3\u51fa/\u505c\u640d/\u91cd\u5927\u4e8b\u4ef6)")
     report_lines.append("-" * 40)
 
-    if urgent_stocks or major_events_list:
-        for s in urgent_stocks + major_events_list:
-            _add_stock_block(report_lines, s)
-    else:
-        report_lines.append(f"{chr(0x2705)} \u7576\u524d\u6c92\u6709\u9700\u8981\u7acb\u5373\u884c\u52d5\u7684\u6301\u80a1\u3002")
+    # Show all holdings with analyst comments
+    for s in urgent_stocks + major_events_list + all_stocks:
+        _add_stock_block(report_lines, s)
 
     return chr(10).join(report_lines)
 

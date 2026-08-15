@@ -172,7 +172,7 @@ def update_analyst_targets() -> None:
             sellzone_idx = idx
         elif hl in ("notes", "\u5099\u8a3b"):
             notes_idx = idx
-        elif hl in ("analyst_comment", "\u5206\u6790\u5e08\u8a55\u8ad6", "\u5206\u6790\u5e08\u898b\u89e3"):
+        elif hl in ("analyst_comment", "\u5206\u6790\u5e08\u8a55\u8ad6", "\u5206\u6790\u5e08\u898b\u89e3", "\u5206\u6790\u5e08\u5061\u8b70"):
             analyst_comment_idx = idx
         elif hl in ("updated", "\u66f4\u65b0\u6642\u9593"):
             updated_idx = idx
