@@ -297,15 +297,195 @@ def update_analyst_targets() -> None:
     logger.info("Monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
 
 
+
+def update_taiwan_analyst_targets() -> None:
+    client, sheet_name = get_credentials()
+    worksheet = client.open(sheet_name).worksheet("Taiwan_Stock")
+    rows = worksheet.get_all_values()
+    if len(rows) < 2:
+        logger.warning("Taiwan_Stock sheet has fewer than 2 rows.")
+        return
+    headers = [h.strip() for h in rows[0]]
+    ticker_idx = buyzone_idx = sellzone_idx = notes_idx = analyst_comment_idx = updated_idx = None
+    for idx, h in enumerate(headers):
+        hl = h.lower()
+        if hl in ("ticker", "代碼"): ticker_idx = idx
+        elif hl in ("buyzone", "買進區間"): buyzone_idx = idx
+        elif hl in ("sellzone", "賣出區間"): sellzone_idx = idx
+        elif hl in ("notes", "備註"): notes_idx = idx
+        elif hl in ("analyst_comment", "分析師評論", "分析師見解", "分析師建議"): analyst_comment_idx = idx
+        elif hl in ("updated", "更新時間"): updated_idx = idx
+    if ticker_idx is None:
+        raise ValueError("Ticker column not found in Taiwan_Stock sheet.")
+    logger.info("Starting Taiwan monthly analyst targets update...")
+    updated_count = 0
+    skipped_count = 0
+    for i, row in enumerate(rows[1:], start=2):
+        if not any(row):
+            continue
+        ticker_raw = row[ticker_idx].strip()
+        if not ticker_raw:
+            continue
+        yf_ticker = ticker_raw + ".TW"
+        try:
+            stock = yf.Ticker(yf_ticker)
+            info = stock.info
+            current = info.get("currentPrice", 0)
+            mean = info.get("targetMeanPrice", 0)
+            high = info.get("targetHighPrice", 0)
+            low = info.get("targetLowPrice", 0)
+            median = info.get("targetMedianPrice", 0)
+            analysts = info.get("numberOfAnalystOpinions", 0)
+            rec_key = info.get("recommendationKey", "")
+            is_month_end = is_last_day_of_month()
+            if analyst_comment_idx is not None:
+                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
+                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
+                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
+                logger.info("%s: Updated analyst_comment to: %s", yf_ticker, new_summary)
+            if updated_idx is not None:
+                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
+            if not is_month_end:
+                updated_count += 1
+                continue
+            if not mean or not low or not high:
+                logger.debug("%s: No analyst data for zone update", yf_ticker)
+                skipped_count += 1
+                continue
+            buy_zone_str = f"{low * 0.9:.2f},{low * 0.85:.2f}"
+            sell_zone_str = f"{mean * 1.0:.2f},{median * 1.0:.2f}"
+            if buyzone_idx is not None:
+                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
+            if sellzone_idx is not None:
+                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
+            if notes_idx is not None:
+                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
+                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
+                existing_notes_row = rows[i - 1]
+                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ""
+                placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "\u2014"]
+                is_placeholder = existing_notes in placeholders
+                import re as _re
+                is_auto_pattern = bool(_re.search(r"\(\d+位\)", existing_notes))
+                should_update = False
+                update_reason = ""
+                if is_placeholder:
+                    should_update = True
+                    update_reason = "empty placeholder"
+                elif is_auto_pattern and summary_note != existing_notes:
+                    should_update = True
+                    update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
+                if should_update:
+                    worksheet.update_cell(i, notes_idx + 1, summary_note)
+                    logger.info("%s: Updated notes (%s): %s -> %s", yf_ticker, update_reason, repr(existing_notes), repr(summary_note))
+                else:
+                    logger.info("%s: Preserving manual remarks (len=%d): %s", yf_ticker, len(existing_notes), repr(existing_notes))
+            logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)", yf_ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
+            updated_count += 1
+        except Exception as exc:
+            logger.error("%s: Error - %s", yf_ticker, exc)
+            skipped_count += 1
+    logger.info("Taiwan monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
+
+
+def update_taiwan_analyst_targets() -> None:
+    client, sheet_name = get_credentials()
+    worksheet = client.open(sheet_name).worksheet("Taiwan_Stock")
+    rows = worksheet.get_all_values()
+    if len(rows) < 2:
+        logger.warning("Taiwan_Stock sheet has fewer than 2 rows.")
+        return
+    headers = [h.strip() for h in rows[0]]
+    ticker_idx = buyzone_idx = sellzone_idx = notes_idx = analyst_comment_idx = updated_idx = None
+    for idx, h in enumerate(headers):
+        hl = h.lower()
+        if hl in ("ticker", "代碼"): ticker_idx = idx
+        elif hl in ("buyzone", "買進區間"): buyzone_idx = idx
+        elif hl in ("sellzone", "賣出區間"): sellzone_idx = idx
+        elif hl in ("notes", "備註"): notes_idx = idx
+        elif hl in ("analyst_comment", "分析師評論", "分析師見解", "分析師建議"): analyst_comment_idx = idx
+        elif hl in ("updated", "更新時間"): updated_idx = idx
+    if ticker_idx is None:
+        raise ValueError("Ticker column not found in Taiwan_Stock sheet.")
+    logger.info("Starting Taiwan monthly analyst targets update...")
+    updated_count = 0
+    skipped_count = 0
+    for i, row in enumerate(rows[1:], start=2):
+        if not any(row):
+            continue
+        ticker_raw = row[ticker_idx].strip()
+        if not ticker_raw:
+            continue
+        yf_ticker = ticker_raw + ".TW"
+        try:
+            stock = yf.Ticker(yf_ticker)
+            info = stock.info
+            current = info.get("currentPrice", 0)
+            mean = info.get("targetMeanPrice", 0)
+            high = info.get("targetHighPrice", 0)
+            low = info.get("targetLowPrice", 0)
+            median = info.get("targetMedianPrice", 0)
+            analysts = info.get("numberOfAnalystOpinions", 0)
+            rec_key = info.get("recommendationKey", "")
+            is_month_end = is_last_day_of_month()
+            if analyst_comment_idx is not None:
+                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
+                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
+                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
+                logger.info("%s: Updated analyst_comment to: %s", yf_ticker, new_summary)
+            if updated_idx is not None:
+                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
+            if not is_month_end:
+                updated_count += 1
+                continue
+            if not mean or not low or not high:
+                logger.debug("%s: No analyst data for zone update", yf_ticker)
+                skipped_count += 1
+                continue
+            buy_zone_str = f"{low * 0.9:.2f},{low * 0.85:.2f}"
+            sell_zone_str = f"{mean * 1.0:.2f},{median * 1.0:.2f}"
+            if buyzone_idx is not None:
+                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
+            if sellzone_idx is not None:
+                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
+            if notes_idx is not None:
+                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
+                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
+                existing_notes_row = rows[i - 1]
+                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ""
+                placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "\u2014"]
+                is_placeholder = existing_notes in placeholders
+                import re as _re
+                is_auto_pattern = bool(_re.search(r"\(\d+位\)", existing_notes))
+                should_update = False
+                update_reason = ""
+                if is_placeholder:
+                    should_update = True
+                    update_reason = "empty placeholder"
+                elif is_auto_pattern and summary_note != existing_notes:
+                    should_update = True
+                    update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
+                if should_update:
+                    worksheet.update_cell(i, notes_idx + 1, summary_note)
+                    logger.info("%s: Updated notes (%s): %s -> %s", yf_ticker, update_reason, repr(existing_notes), repr(summary_note))
+                else:
+                    logger.info("%s: Preserving manual remarks (len=%d): %s", yf_ticker, len(existing_notes), repr(existing_notes))
+            logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)", yf_ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
+            updated_count += 1
+        except Exception as exc:
+            logger.error("%s: Error - %s", yf_ticker, exc)
+            skipped_count += 1
+    logger.info("Taiwan monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
+
 def main() -> None:
     """Main entry point."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
-
     logger.info("Monthly Analyst Targets Update starting...")
     update_analyst_targets()
+    update_taiwan_analyst_targets()
     logger.info("Monthly Analyst Targets Update finished.")
 
 
