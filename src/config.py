@@ -167,6 +167,30 @@ class GoogleSheetsManager:
         logger.warning("Ticker %s not found for daily info update.", ticker)
 
 
+
+    def load_taiwan_stocks(self) -> List[Dict[str, Any]]:
+        """Load Taiwan stock watchlist from Google Sheets Taiwan_Stock worksheet.
+
+        Supports both English and Chinese column headers.
+        """
+        worksheet = self.client.open(self.sheet_name).worksheet("Taiwan_Stock")
+        rows: List[List[Any]] = worksheet.get_all_values()
+
+        if len(rows) < 2:
+            raise ValueError("Taiwan_Stock sheet has fewer than 2 rows.")
+
+        headers_raw: List[str] = [str(h).strip() for h in rows[0]]
+        stocks: List[Dict[str, Any]] = []
+
+        for row in rows[1:]:
+            if not any(cell is not None and str(cell).strip() for cell in row):
+                continue
+            record: Dict[str, Any] = dict(zip(headers_raw, row))
+            stocks.append(record)
+
+        logger.info("Loaded %d Taiwan stock(s) from Google Sheets.", len(stocks))
+        return stocks
+
     @staticmethod
     def _get_env(name: str, default: str = "") -> Optional[str]:
         import os
