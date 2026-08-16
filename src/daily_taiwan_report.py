@@ -19,6 +19,35 @@ logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
 TW_SUFFIX = ".TW"
 
+
+# Taiwan Stock Exchange 2026 holidays
+TW_HOLIDAYS: Dict[str, str] = {
+    "2026-01-01": "\u5143\u65e6",
+    "2026-01-28": "\u6625\u7ae5\u591c",
+    "2026-01-29": "\u6625\u7ae5\u521d\u4e00",
+    "2026-01-30": "\u6625\u7ae5\u521d\u4e8c",
+    "2026-02-02": "\u6625\u7ae5\u8865\u5047",
+    "2026-03-03": "\u4e8c\u4e8c\u516b\u7d00\u5ff5\u65e5",
+    "2026-04-04": "\u6e05\u660e\u7bc0",
+    "2026-04-05": "\u6e05\u660e\u8865\u5047",
+    "2026-05-01": "\u52de\u52d5\u7bc0",
+    "2026-05-05": "\u7aef\u5348\u7bc0",
+    "2026-06-19": "\u7aef\u5348\u8865\u5047",
+    "2026-09-25": "\u4e2d\u79cb\u7bc0",
+    "2026-10-10": "\u570b\u6109\u65e5",
+    "2026-10-12": "\u570b\u6109\u8865\u5047",
+}
+
+def is_taiwan_trading_day():
+    now = datetime.now(TW_TZ)
+    date_str = now.strftime("%Y-%m-%d")
+    if now.weekday() >= 5:
+        return False
+    if date_str in TW_HOLIDAYS:
+        logger.info("Taiwan market holiday: %s (%s)", date_str, TW_HOLIDAYS[date_str])
+        return False
+    return True
+
 POS_KW = {"buy", "upgrade", "strong", "bullish", "growth", "positive",
           "record", "profit", "accelerate", "surge", "beat", "ahead"}
 NEG_KW = {"sell", "downgrade", "weak", "bearish", "risk", "decline",
@@ -225,6 +254,15 @@ def main():
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
     logger.info("Taiwan Stock Monitor - Daily Report starting...")
+
+    if not is_taiwan_trading_day():
+        now_tw = datetime.now(TW_TZ)
+        date_str = now_tw.strftime("%Y-%m-%d (%a)")
+        msg = chr(0x1F4CA) + " \u53f0\u80a1\u71b1\u9ede\u80a1\u65e5\u5831 | " + date_str + chr(10)
+        msg += chr(0x26A0) + chr(0xFE0F) + " \u8a3b\uff1a\u4eca\u65e5\u8655\u65bc\u4f11\u5e02\u65e5\uff0c\u4eca\u65e5\u4e0d\u6d3e\u767c\u3002" + chr(10)
+        print(msg)
+        logger.info("Taiwan market is closed today, skipping report.")
+        sys.exit(0)
 
     manager = GoogleSheetsManager()
     watchlist = manager.load_taiwan_stocks()
