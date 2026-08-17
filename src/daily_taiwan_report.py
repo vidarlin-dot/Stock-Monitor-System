@@ -74,7 +74,7 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     high_20d = data.high_20d
     low_20d = data.low_20d
     notes_raw = str(h.get("notes", h.get("備註", ""))).strip()
-    catalyst_raw = str(h.get("catalystdate", h.get("催化事件日期", ""))).strip()
+    catalyst_raw = str(h.get("catalystdate", h.get("催化劑日期", ""))).strip()
     score = score_info["focus_score"]
     category = score_info["category"]
 
@@ -309,7 +309,7 @@ def _extract_recent_events(data: StockMarketData, h: Dict[str, Any]) -> List[str
                 direction = "超" if diff_pct > 0 else "遜"
                 events.append(f"📊 {date} 財報：EPS {_fmt_price(actual)} 元，{direction}預估 {_fmt_price(est)} 元 ({_fmt_pct(diff_pct)})")
 
-    catalyst_date = str(h.get("catalystdate", h.get("催化事件日期", ""))).strip()
+    catalyst_date = str(h.get("catalystdate", h.get("催化劑日期", ""))).strip()
     if catalyst_date:
         events.append(f"🔥 催化事件：{catalyst_date}")
 
