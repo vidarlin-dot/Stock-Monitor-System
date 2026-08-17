@@ -108,10 +108,13 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     for item in data.news_list[:2]:
         title = _extract_title(item)
         if title and len(title) > 5:
-            if event_text:
-                event_text = event_text + "；" + title[:30]
-            else:
-                event_text = title[:60]
+            if notes_raw and notes_raw in title:
+                continue
+            if title not in event_text:
+                if event_text:
+                    event_text = event_text + "；" + title[:30]
+                else:
+                    event_text = title[:60]
             break
     if event_text:
         lines.append(f"📅 事件：{event_text}")
