@@ -32,9 +32,12 @@ from taiwan_market_data import (
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
 
-def _extract_ticker_code(raw: str) -> str:
-    m = re.match(r"(\d+)", str(raw).strip())
-    return m.group(1) if m else str(raw).strip()
+def _extract_ticker_code(raw: str) -> tuple:
+    raw = str(raw).strip()
+    m = re.match(r"(\d+)(.*)", raw)
+    if m:
+        return m.group(1), m.group(2).strip()
+    return raw, 
 
 FOCUS_THRESHOLD = 60
 MAX_FOCUS_STOCKS = 10
@@ -339,7 +342,7 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
     all_scores: Dict[str, Dict[str, Any]] = {}
     stock_info: Dict[str, Dict[str, Any]] = {}
     for h in watchlist:
-        ticker = _extract_ticker_code(h.get("ticker", h.get("代碼", "")))
+        ticker, sheet_name = _extract_ticker_code(h.get("ticker", h.get("代碼", ""))); h["短名"] = sheet_name or h.get("短名", "")
         if not ticker:
             continue
         data = stocks_data.get(ticker)
@@ -423,7 +426,7 @@ def main():
 
     # Fetch market data
     stocks_data = fetch_all_stock_data(
-        [_extract_ticker_code(h.get("ticker", h.get("代碼", "")))
+        [_extract_ticker_code(h.get("ticker", h.get("代碼", "")))[0]
          for h in watchlist]
     )
 
