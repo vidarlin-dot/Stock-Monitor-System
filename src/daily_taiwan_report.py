@@ -101,10 +101,10 @@ def _ma_position_str(data: StockMarketData) -> str:
 def _build_focus_detail(ticker: str, data: StockMarketData,
                         h: Dict[str, Any],
                         score_info: Dict[str, Any]) -> str:
-    """Build the detailed section for one focus stock."""
     lines = []
     category = score_info["category"]
     score = score_info["focus_score"]
+    price = data.current_price
 
     lines.append("")
     lines.append(f"### {ticker} {data.short_name}｜焦點分數 {score:.0f}/100｜{category}")
@@ -127,7 +127,7 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
 
     # 收盤表現
     lines.append("")
-    lines.append(f"- 收盤表現：收盤 {_fmt_price(data.current_price)} 元，")
+    lines.append(f"- 收盤表現：收盤 {_fmt_price(price)} 元，")
     lines.append(f"  漲跌 {_fmt_pct(data.day_change_pct)}；")
     lines.append(f"  成交值 {_vol_change_str(data.volume, data.avg_volume_20d)}")
 
@@ -143,13 +143,72 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     lines.append("  ⚠️ 三大法人買賣超資料暫無法從 Yahoo Finance 取得，")
     lines.append("    請手動更新至 Google Sheet「Taiwan_Stock」工作表的法人欄位")
 
+    # 操作建議
+    lines.append("")
+    lines.append("- 操作建議：")
+    buy_range, hold_range, sell_range, stop_loss = _compute_trade_range(data)
+    if data.rec_key in ("buy", "strong_buy"):
+        action = "建議追蹤買進或續持"
+    elif data.rec_key in ("hold", "neutral"):
+        action = "以持有觀察為主，不宜追價"
+    elif data.rec_key in ("sell", "underperform"):
+        action = "建議逢高減碼或停損"
+    else:
+        action = "依當日走勢評估，不宜過度進場"
+    if data.day_change_pct > 3:
+        action += "（當日大漲，注意追價風險）"
+    elif data.day_change_pct < -3:
+        action += "（當日大跌，觀察是否續跌）"
+    lines.append(f"  建議動作：{action}")
+    if buy_range:
+        lines.append(f"  建議買進區間：{buy_range}")
+    if hold_range:
+        lines.append(f"  持有區間：{hold_range}")
+    if sell_range:
+        lines.append(f"  建議賣出區間：{sell_range}")
+    if stop_loss:
+        lines.append(f"  停損價參考：{stop_loss}")
+
+    # 利多因素
+    lines.append("")
+    lines.append("- 利多因素：")
+    bull_factors = _extract_bull_factors(data, score_info, h)
+    if bull_factors:
+        for bf in bull_factors:
+            lines.append(f"  ✓ {bf}")
+    else:
+        lines.append("  暫無顯著利多訊號")
+
+    # 利空因素
+    lines.append("")
+    lines.append("- 利空因素：")
+    bear_factors = _extract_bear_factors(data, score_info)
+    if bear_factors:
+        for bf in bear_factors:
+            lines.append(f"  ✗ {bf}")
+    else:
+        lines.append("  暫無明顯利空訊號")
+
+    # 近期重要事件
+    lines.append("")
+    lines.append("- 近期重要事件：")
+    events = _extract_recent_events(data, h)
+    if events:
+        for ev in events:
+            lines.append(f"  {ev}")
+    else:
+        lines.append("  尚無近期重要事件資料")
+
     # 主要催化
     lines.append("")
     lines.append("- 主要催化：")
     catalysts = _extract_catalysts(data, h)
     if catalysts:
+        seen = set()
         for c in catalysts[:3]:
-            lines.append(f"  1. {c}")
+            if c not in seen:
+                lines.append(f"  · {c}")
+                seen.add(c)
     else:
         lines.append("  尚無明確催化事件")
 
@@ -167,24 +226,22 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     lines.append("")
     lines.append("- 技術與量價位置：")
     lines.append(f"  均線位置：{_ma_position_str(data)}")
-    if data.high_20d > 0 and data.current_price > 0:
-        dist = (data.high_20d - data.current_price) / data.high_20d * 100
+    if data.high_20d > 0 and price > 0:
+        dist = (data.high_20d - price) / data.high_20d * 100
         if dist <= 2:
             lines.append(f"  距離 20 日高點僅 {dist:.1f}%，接近突破區")
         elif dist <= 10:
             lines.append(f"  距 20 日高點 {dist:.1f}%，整理區間內")
         else:
             lines.append(f"  距 20 日高點 {dist:.1f}%，尚未突破")
-
-    # 風險與反證
-    lines.append("")
-    lines.append("- 風險與反證：")
-    risks = _extract_risks(data, score_info)
-    if risks:
-        for r in risks:
-            lines.append(f"  · {r}")
-    else:
-        lines.append("  暫無明顯風險訊號")
+    if data.avg_volume_20d > 0:
+        vol_ratio = data.volume / data.avg_volume_20d
+        if vol_ratio >= 1.5:
+            lines.append(f"  量能放大至均量 {vol_ratio:.1f} 倍，資金關注度高")
+        elif vol_ratio >= 1.0:
+            lines.append(f"  量能與均量相當 ({vol_ratio:.1f} 倍)")
+        else:
+            lines.append(f"  量能萎縮至均量 {vol_ratio:.1f} 倍，資金關注度偏低")
 
     # 今日觀察重點
     lines.append("")
@@ -200,16 +257,180 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     return "\n".join(lines)
 
 
-def _extract_catalysts(data: StockMarketData, h: Dict[str, Any]) -> List[str]:
-    """Extract catalyst events from sheet data and news."""
+def _compute_trade_range(data: StockMarketData) -> tuple:
+    price = data.current_price
+    prev_close = data.previous_close
+    target = data.mean_target
+    low_20d = data.low_20d
+    high_20d = data.high_20d
+    ma20 = data.close_20d
+    ma5 = data.close_5d
+
+    buy_range = None
+    hold_range = None
+    sell_range = None
+    stop_loss = None
+
+    if prev_close > 0 and price > 0:
+        pct = (price - prev_close) / prev_close * 100
+    else:
+        pct = 0
+
+    if ma20 > 0 and price > ma20 * 1.02:
+        buy_range = f"{_fmt_price(ma20 * 0.98)}～{_fmt_price(price * 0.97)} 元"
+    elif ma5 > 0:
+        buy_range = f"{_fmt_price(ma5 * 0.97)}～{_fmt_price(price * 0.98)} 元"
+    else:
+        buy_range = f"現價附近或回測 MA20 ({_fmt_price(ma20)} 元) 時留意"
+
+    if target > 0 and price < target * 0.95:
+        hold_range = f"{_fmt_price(price)}～{_fmt_price(target * 0.95)} 元"
+    elif target > 0:
+        hold_range = f"現價 {_fmt_price(price)} 元 附近持有，觀察能否突破 {_fmt_price(target * 0.95)} 元"
+    else:
+        hold_range = f"現價 {_fmt_price(price)} 元 附近持有"
+
+    if target > 0:
+        sell_range = f"{_fmt_price(target * 0.95)}～{_fmt_price(target * 1.05)} 元"
+    elif high_20d > 0:
+        sell_range = f"{_fmt_price(high_20d)}～{_fmt_price(high_20d * 1.05)} 元（近期高點區間）"
+    else:
+        sell_range = "目標價或近期高點區間"
+
+    if ma20 > 0 and ma20 < price * 0.95:
+        stop_loss = f"{_fmt_price(ma20 * 0.97)} 元（跌破 MA20 支撐）"
+    else:
+        sl_pct = 5.0 if pct > 2 else 7.0
+        stop_loss = f"{_fmt_price(price * (1 - sl_pct/100))} 元（約跌 {sl_pct}%）"
+
+    return buy_range, hold_range, sell_range, stop_loss
+
+
+def _extract_bull_factors(data: StockMarketData, score_info: Dict[str, Any],
+                          h: Dict[str, Any]) -> List[str]:
+    factors = []
+    price = data.current_price
+    target = data.mean_target
+    rec_label = data.rec_label
+
+    if rec_label in ("買進", "強烈買進", "strong_buy", "buy"):
+        factors.append(f"分析師評等偏多：{rec_label}（{data.analysts} 位分析師）")
+
+    if target > 0 and price > 0:
+        ups = (target - price) / price * 100
+        if ups > 5:
+            factors.append(f"目標價{_fmt_price(target)} 元，潛在上漲空間 {_fmt_pct(ups)}")
+
+    if price > data.close_5d > data.close_20d:
+        factors.append("均線排列向上（MA5 > MA20），多頭排列初步成形")
+    elif price > data.close_5d:
+        factors.append("股價站穩 MA5，短線動能偏多")
+
+    if data.avg_volume_20d > 0 and data.volume > data.avg_volume_20d * 1.5:
+        factors.append(f"成交量放大至 20 日均量 {data.volume/data.avg_volume_20d:.1f} 倍，資金積極進場")
+
+    notes = str(h.get("notes", h.get("備註", ""))).strip()
+    if notes and len(notes) > 3:
+        factors.append(f"追蹤備註：{notes}")
+
+    if data.earnings_history:
+        latest = data.earnings_history[0]
+        if latest.get("actual_eps", 0) > latest.get("est_eps", 0) * 1.05:
+            factors.append(f"上一季 EPS {_fmt_price(latest['actual_eps'])} 元超預期待遇（預估 {_fmt_price(latest['est_eps'])} 元）")
+
+    return factors
+
+
+def _extract_bear_factors(data: StockMarketData, score_info: Dict[str, Any]) -> List[str]:
+    factors = []
+    price = data.current_price
+    target = data.mean_target
+    change = data.day_change_pct
+    rp = score_info["risk_penalty"]
+
+    if target > 0 and price > target * 1.1:
+        over = (price / target - 1) * 100
+        factors.append(f"股價已超出目標價 {over:.0f}%，估值偏高")
+
+    if change > 5:
+        factors.append(f"當日大漲 {change:.1f}%，追價風險較高")
+
+    if data.high_20d > 0 and price > data.high_20d * 0.98:
+        factors.append(f"股價接近 20 日高點 {_fmt_price(data.high_20d)} 元，注意獲利了結賣壓")
+
+    if data.avg_volume_20d > 0 and data.volume < data.avg_volume_20d * 0.7:
+        factors.append(f"成交量萎縮至均量 {data.volume/data.avg_volume_20d:.1f} 倍，資金關注度低")
+
+    if data.rec_label in ("賣出", "减持", "sell", "underperform"):
+        factors.append(f"分析師評等偏空：{data.rec_label}")
+
+    if rp >= 5:
+        factors.append(f"風險扣分 {rp:.0f} 分，請留意潛在負面因素")
+
+    if change < -5:
+        factors.append(f"當日大跌 {change:.1f}%，需觀察是否續跌")
+
+    return factors
+
+
+def _extract_recent_events(data: StockMarketData, h: Dict[str, Any]) -> List[str]:
+    events = []
+    now = datetime.now(TW_TZ)
+
+    if data.next_earnings_date:
+        try:
+            earn_dt = datetime.strptime(str(data.next_earnings_date), "%Y-%m-%d")
+            earn_dt = earn_dt.replace(tzinfo=TW_TZ)
+            days_left = (earn_dt - now).days
+            if days_left >= 0:
+                events.append(f"📅 下一季財報發布日：{data.next_earnings_date}（{days_left} 天後）")
+            else:
+                events.append(f"📅 上一季財報發布日：{data.next_earnings_date}（已過）")
+        except (ValueError, TypeError):
+            events.append(f"📅 財報日期：{data.next_earnings_date}")
+
+    if data.eps_estimate > 0:
+        events.append(f"💰 本季度 EPS 預估：{_fmt_price(data.eps_estimate)} 元")
+    if data.revenue_est > 0:
+        rev_t = data.revenue_est / 1e8
+        events.append(f"💰 本季度營收預估：約 {rev_t:.1f} 億元")
+
+    if data.earnings_history:
+        for eh in data.earnings_history[:2]:
+            actual = eh.get("actual_eps", 0)
+            est = eh.get("est_eps", 0)
+            date = eh.get("date", "")
+            if actual > 0 and est > 0:
+                diff_pct = (actual - est) / est * 100
+                direction = "超" if diff_pct > 0 else "遜"
+                events.append(f"📊 {date} 財報：EPS {_fmt_price(actual)} 元，{direction}預估 {_fmt_price(est)} 元 ({_fmt_pct(diff_pct)})")
+
+    catalyst_date = str(h.get("catalystdate", h.get("催化事件日期", ""))).strip()
+    if catalyst_date:
+        events.append(f"🔥 催化事件：{catalyst_date}")
+
+    notes = str(h.get("notes", h.get("備註", ""))).strip()
+    if notes and len(notes) > 5:
+        events.append(f"🔥 {notes}")
+
+    return events
+
+
+
+def _extract_title(item):
+    if isinstance(item.get("content"), dict):
+        return item["content"].get("title", "") or ""
+    return item.get("title", "") or ""
+
+
+def _extract_catalysts(data, h):
     catalysts = []
     catalyst_date = str(h.get("catalystdate", h.get("催化事件日期", ""))).strip()
-    notes = str(h.get("notes", h.get("備註", ""))).strip()
     if catalyst_date:
         catalysts.append(f"[{catalyst_date}] {catalyst_date} 事件")
+    notes = str(h.get("notes", h.get("備註", ""))).strip()
     if notes:
         catalysts.append(notes)
-    # News catalysts
     for item in data.news_list[:3]:
         title = _extract_title(item)
         if title and len(title) > 5:
@@ -217,8 +438,7 @@ def _extract_catalysts(data: StockMarketData, h: Dict[str, Any]) -> List[str]:
     return catalysts
 
 
-def _summarize_news(news_list: List[Dict[str, Any]], rec_label: str) -> List[str]:
-    """Summarize recent news headlines."""
+def _summarize_news(news_list, rec_label):
     points = []
     for item in news_list[:4]:
         title = _extract_title(item)
@@ -229,8 +449,7 @@ def _summarize_news(news_list: List[Dict[str, Any]], rec_label: str) -> List[str
     return points
 
 
-def _extract_risks(data: StockMarketData, score_info: Dict[str, Any]) -> List[str]:
-    """Extract risk signals."""
+def _extract_risks(data, score_info):
     risks = []
     if data.day_change_pct <= -3:
         risks.append(f"當日下跌 {data.day_change_pct:.1f}%，需觀察是否續跌")
@@ -238,13 +457,12 @@ def _extract_risks(data: StockMarketData, score_info: Dict[str, Any]) -> List[st
     if data.mean_target > 0 and price > data.mean_target * 1.15:
         risks.append(f"股價已超出目標價 {((price/data.mean_target-1)*100):.0f}%，估值偏高")
     if score_info["risk_penalty"] >= 5:
-        risks.append(f"風險扣分 {score_info['risk_penalty']:.0f} 分，請留意潛在負面因素")
+        rp = score_info["risk_penalty"]
+        risks.append(f"風險扣分 {rp:.0f} 分，請留意潛在負面因素")
     return risks
 
 
-def _generate_observations(data: StockMarketData,
-                           score_info: Dict[str, Any]) -> List[str]:
-    """Generate today's observation points."""
+def _generate_observations(data, score_info):
     obs = []
     if data.avg_volume_20d > 0:
         obs.append(f"成交量是否維持在 20 日均量 {_fmt_price(data.avg_volume_20d)} 以上")
@@ -255,13 +473,10 @@ def _generate_observations(data: StockMarketData,
     return obs
 
 
-def _generate_verdict(data: StockMarketData,
-                      score_info: Dict[str, Any]) -> str:
-    """Generate a verdict statement."""
+def _generate_verdict(data, score_info):
     cat = score_info["category"]
     score = score_info["focus_score"]
     change = data.day_change_pct
-
     if cat == "風險焦點":
         return "有明確風險訊號，列為風險觀察，不宜追價，等待籌碼轉向確認"
     elif score >= 80:
@@ -274,12 +489,6 @@ def _generate_verdict(data: StockMarketData,
         return "訊號初步出現，建議持續追蹤籌碼與新聞面變化再決定操作"
     else:
         return "中性觀察，目前缺乏明確催化或籌碼支持，暫不列為重點焦點"
-
-
-def _extract_title(item: Dict[str, Any]) -> str:
-    if isinstance(item.get("content"), dict):
-        return item["content"].get("title", "") or ""
-    return item.get("title", "") or ""
 
 
 def _build_watchlist_summary(all_scores: Dict[str, Dict[str, Any]],

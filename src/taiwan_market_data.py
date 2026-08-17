@@ -119,6 +119,12 @@ class StockMarketData:
     institutional: Dict[str, Any] = field(default_factory=dict)
     fetched_at: str = ""
 
+    # Earnings/event data (from yfinance or manual entry)
+    revenue_est: float = 0.0
+    eps_estimate: float = 0.0
+    next_earnings_date: str = ""
+    earnings_history: List[Dict[str, Any]] = field(default_factory=list)
+
 
 def _fetch_price_history(yf_ticker: str, period: str = "6mo") -> Optional[Dict[str, Any]]:
     """Fetch price history via Yahoo Finance API (fast, with timeout)."""
@@ -257,6 +263,10 @@ def fetch_taiwan_stock_data(ticker: str) -> Optional[StockMarketData]:
         news_list=news_list,
         institutional={},  # Taiwan 3-institutional data not available via Yahoo
         fetched_at=datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M"),
+        revenue_est=info.get("revenueEstimate") or 0,
+        eps_estimate=(info.get("epsTrend") or {}).get("current") or 0,
+        next_earnings_date="",
+        earnings_history=[],
     )
     _save_cache(ticker, data.__dict__)
     return data
