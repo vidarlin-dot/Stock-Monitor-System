@@ -13,6 +13,7 @@ FocusScore pipeline:
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -30,6 +31,11 @@ from taiwan_market_data import (
 
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
+
+def _extract_ticker_code(raw: str) -> str:
+    m = re.match(r"(\d+)", str(raw).strip())
+    return m.group(1) if m else str(raw).strip()
+
 FOCUS_THRESHOLD = 60
 MAX_FOCUS_STOCKS = 10
 MIN_FOCUS_STOCKS = 3
@@ -540,7 +546,7 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
     # Compute scores for all stocks
     all_scores: Dict[str, Dict[str, Any]] = {}
     for h in watchlist:
-        ticker = str(h.get("ticker", h.get("代碼", ""))).strip()
+        ticker = _extract_ticker_code(h.get("ticker", h.get("代碼", "")))
         if not ticker:
             continue
         data = stocks_data.get(ticker)
@@ -633,7 +639,7 @@ def main():
 
     # Fetch market data
     stocks_data = fetch_all_stock_data(
-        [str(h.get("ticker", h.get("代碼", ""))).strip()
+        [_extract_ticker_code(h.get("ticker", h.get("代碼", "")))
          for h in watchlist]
     )
 

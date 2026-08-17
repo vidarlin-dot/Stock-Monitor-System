@@ -177,6 +177,16 @@ def fetch_taiwan_stock_data(ticker: str) -> Optional[StockMarketData]:
         median_target = info.get("targetMedianPrice") or 0
         analysts = info.get("numberOfAnalystOpinions") or 0
         news_list = yf_data["news"]
+        day_high = current or 0
+        day_low = current or 0
+        close_5d = current or 0
+        close_20d = current or 0
+        close_60d = current or 0
+        high_20d = current or 0
+        low_20d = current or 0
+        avg_vol_5d = avg_vol or 0
+        avg_vol_20d = avg_vol or 0
+        avg_vol_60d = avg_vol or 0
     else:
         result = history_result.get("result", [{}])[0]
         meta = result.get("meta", {})
