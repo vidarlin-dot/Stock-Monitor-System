@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-"""Daily Taiwan stock focus report."""
 
 from __future__ import annotations
 
@@ -10,6 +9,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pytz
+
+import json
+import os
+import requests
 import yfinance as yf
 
 from config import GoogleSheetsManager
@@ -18,6 +21,31 @@ from line_notifier import LineNotifier
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
 TW_SUFFIX = ".TW"
+
+
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "\\cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+def _load_cache(ticker):
+    path = os.path.join(CACHE_DIR, ticker + '.json')
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _save_cache(ticker, data):
+    path = os.path.join(CACHE_DIR, ticker + '.json')
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as exc:
+        logger.debug('Cache save failed for %s: %s', ticker, exc)
+
 
 
 # Taiwan Stock Exchange 2026 holidays
@@ -88,7 +116,7 @@ def _fetch_stock_data(ticker):
         short_name = info.get("shortName") or info.get("symbol", ticker)
         volume = info.get("volume") or 0
         avg_volume = info.get("averageVolume") or 0
-        return {
+        data = {
             "ticker": ticker, "short_name": short_name,
             "current_price": current, "previous_close": prev_close,
             "mean_target": mean_target, "high_target": high_target,
@@ -97,10 +125,15 @@ def _fetch_stock_data(ticker):
             "sentiment": sentiment, "volume": volume,
             "avg_volume": avg_volume, "rec_key": rec_key,
         }
+        _save_cache(ticker, data)
+        return data
     except Exception as exc:
         logger.debug("Failed to fetch data for %s: %s", yf_ticker, exc)
+        cached = _load_cache(ticker)
+        if cached:
+            logger.info("Using cached data for %s", ticker)
+            return cached
         return None
-
 
 def _news_sentiment(news_list):
     """Classify sentiment from recent news headlines."""
@@ -290,9 +323,14 @@ def main():
         else:
             logger.error("%s: failed to fetch after 3 attempts", ticker)
 
-    if not stocks_data:
-        logger.error("No stock data available, aborting.")
-        sys.exit(1)
+        if not stocks_data:
+            cached = _load_cache("__ALL__")
+            if cached:
+                logger.info("Using cached data from previous trading day.")
+                stocks_data = cached
+            else:
+                logger.error("No stock data available, aborting.")
+                sys.exit(1)
 
     report = _build_taiwan_report(stocks_data, watchlist)
     print(report)
