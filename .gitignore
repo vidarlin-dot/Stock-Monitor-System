@@ -4,3 +4,4 @@ __pycache__/
 venv/
 .venv/
 src/.taiwan_b64
+src/cache/

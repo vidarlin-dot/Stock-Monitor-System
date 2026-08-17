@@ -1,8 +1,8 @@
-﻿name: Daily Taiwan Stock Monitor
+name: Daily Taiwan Stock Monitor
 
 on:
   schedule:
-    - cron: '30 1 * * 1-5'
+    - cron: '30 7 * * 1-5'
   workflow_dispatch:
 
 jobs:
