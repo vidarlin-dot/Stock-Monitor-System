@@ -54,6 +54,36 @@ def _save_cache(ticker: str, data: Dict[str, Any]) -> None:
     except Exception as exc:
         logger.debug("Cache save failed for %s: %s", ticker, exc)
 
+# Taiwan Stock Exchange 2026 holidays
+TW_HOLIDAYS: Dict[str, str] = {
+    '2026-01-01': '\u5143\u65e6',
+    '2026-01-28': '\u6625\u7ae5\u591c',
+    '2026-01-29': '\u6625\u7ae5\u521d\u4e00',
+    '2026-01-30': '\u6625\u7ae5\u521d\u4e8c',
+    '2026-02-02': '\u6625\u7ae5\u8865\u5047',
+    '2026-03-03': '\u4e8c\u4e8c\u516b\u7d00\u5ff5\u65e5',
+    '2026-04-04': '\u6e05\u660e\u7bc0',
+    '2026-04-05': '\u6e05\u660e\u8865\u5047',
+    '2026-05-01': '\u52de\u52d5\u7bc0',
+    '2026-05-05': '\u7aef\u5348\u7bc0',
+    '2026-06-19': '\u7aef\u5348\u8865\u5047',
+    '2026-09-25': '\u4e2d\u79cb\u7bc0',
+    '2026-10-10': '\u570b\u6109\u65e5',
+    '2026-10-12': '\u570b\u6109\u8865\u5047',
+}
+
+
+def is_taiwan_trading_day():
+    now = datetime.now(TW_TZ)
+    date_str = now.strftime('%Y-%m-%d')
+    if now.weekday() >= 5:
+        return False
+    if date_str in TW_HOLIDAYS:
+        logger.info('Taiwan market holiday: %s (%s)', date_str, TW_HOLIDAYS[date_str])
+        return False
+    return True
+
+
 
 # ---------------------------------------------------------------------------
 # Data fetching
@@ -242,29 +272,33 @@ def _score_market_heat(data: StockMarketData) -> float:
 
     # Volume activity (30%)
     vol_ratio_20d = data.volume / data.avg_volume_20d if data.avg_volume_20d > 0 else 0
-    if vol_ratio_20d >= 3.0:
+    if vol_ratio_20d >= 5.0:
         score += 30
+    elif vol_ratio_20d >= 3.0:
+        score += 27
     elif vol_ratio_20d >= 2.0:
-        score += 25
+        score += 22
     elif vol_ratio_20d >= 1.5:
-        score += 18
+        score += 15
     elif vol_ratio_20d >= 1.2:
-        score += 10
+        score += 12
     else:
-        score += max(0, vol_ratio_20d * 8)
+        score += max(0, vol_ratio_20d * 7)
 
     # Price change & amplitude (25%)
     abs_chg = abs(data.day_change_pct)
-    if abs_chg >= 5.0:
+    if abs_chg >= 7.0:
         score += 25
+    elif abs_chg >= 5.0:
+        score += 22
     elif abs_chg >= 3.0:
-        score += 20
+        score += 18
     elif abs_chg >= 2.0:
-        score += 15
+        score += 13
     elif abs_chg >= 1.0:
-        score += 10
+        score += 12
     else:
-        score += abs_chg * 5
+        score += abs_chg * 6
 
     # Near 20-day high / low (20%)
     if data.high_20d > 0 and data.current_price > 0:
@@ -388,13 +422,13 @@ def _score_trend(data: StockMarketData) -> float:
     # Price above MAs (35%)
     if data.close_5d > 0:
         if price > data.close_5d:
-            score += 12
+            score += 8
         if price > data.close_20d:
             score += 12
         if data.close_60d > 0 and price > data.close_60d:
-            score += 11
+            score += 15
     elif data.close_20d > 0 and price > data.close_20d:
-        score += 24
+        score += 20
 
     # MA5 > MA20 (bullish alignment) (25%)
     if data.close_5d > 0 and data.close_20d > 0:
@@ -493,16 +527,16 @@ def compute_focus_score(data: StockMarketData, h: Dict[str, Any]) -> Dict[str, A
     wf = _score_watchlist_fit(h)
     rp = _risk_penalty(data, h)
 
-    focus_score = (0.30 * mh + 0.25 * inst + 0.25 * cat
+    focus_score = (0.20 * mh + 0.30 * inst + 0.30 * cat
                    + 0.10 * tr + 0.10 * wf - rp)
     focus_score = max(0.0, min(100.0, focus_score))
 
     # Category
     if rp >= 8:
         category = "風險焦點"
-    elif focus_score >= 75:
+    elif focus_score >= 70:
         category = "偏多焦點"
-    elif focus_score >= 65:
+    elif focus_score >= 60:
         category = "中性觀察"
     else:
         category = "一般追蹤"

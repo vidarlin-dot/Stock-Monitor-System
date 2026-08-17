@@ -30,7 +30,7 @@ from taiwan_market_data import (
 
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
-FOCUS_THRESHOLD = 65
+FOCUS_THRESHOLD = 60
 MAX_FOCUS_STOCKS = 5
 MIN_FOCUS_STOCKS = 3
 
