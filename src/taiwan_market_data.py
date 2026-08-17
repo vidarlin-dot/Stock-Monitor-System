@@ -484,17 +484,6 @@ def _score_trend(data: StockMarketData) -> float:
     return min(100.0, score)
 
 
-def _score_watchlist_fit(h: Dict[str, Any]) -> int:
-    """WatchlistFit 0-100 based on tracking tier."""
-    tier = str(h.get("tier", h.get("追蹤層級", h.get("level", "")))).strip().lower()
-    if tier in ("core", "核心", "核心持股", "長期追蹤"):
-        return 100
-    elif tier in ("regular", "一般", "一般追蹤"):
-        return 70
-    elif tier in ("watch", "觀察", "觀察名單"):
-        return 40
-    return 0
-
 
 def _risk_penalty(data: StockMarketData, h: Dict[str, Any]) -> float:
     """RiskPenalty 0-20.  Deduct for negative signals."""
@@ -538,17 +527,17 @@ def compute_focus_score(data: StockMarketData, h: Dict[str, Any]) -> Dict[str, A
 
     Returns dict with:
         focus_score, market_heat, institutional, catalyst, trend,
-        watchlist_fit, risk_penalty, category
+        risk_penalty, category
     """
     mh = _score_market_heat(data)
     inst = _score_institutional(data)
     cat = _score_catalyst(data)
     tr = _score_trend(data)
-    wf = _score_watchlist_fit(h)
+    wf = 0  # tier removed per user request
     rp = _risk_penalty(data, h)
 
     focus_score = (0.20 * mh + 0.30 * inst + 0.30 * cat
-                   + 0.10 * tr + 0.10 * wf - rp)
+                   + 0.10 * tr - rp)
     focus_score = max(0.0, min(100.0, focus_score))
 
     # Category
@@ -567,7 +556,6 @@ def compute_focus_score(data: StockMarketData, h: Dict[str, Any]) -> Dict[str, A
         "institutional": round(inst, 1),
         "catalyst": round(cat, 1),
         "trend": round(tr, 1),
-        "watchlist_fit": wf,
         "risk_penalty": round(rp, 1),
         "category": category,
     }
