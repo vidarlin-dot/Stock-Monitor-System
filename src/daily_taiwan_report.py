@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytz
@@ -127,7 +127,7 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
 
     # 收盤表現
     lines.append("")
-    lines.append("- 收盤表現：收盤 {_fmt_price(data.current_price)} 元，")
+    lines.append(f"- 收盤表現：收盤 {_fmt_price(data.current_price)} 元，")
     lines.append(f"  漲跌 {_fmt_pct(data.day_change_pct)}；")
     lines.append(f"  成交值 {_vol_change_str(data.volume, data.avg_volume_20d)}")
 
