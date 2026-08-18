@@ -41,7 +41,7 @@ class LineNotifier:
 
         self.token = self._get_env("LINE_CHANNEL_ACCESS_TOKEN")
         if not self.token:
-            raise ValueError("LINE_CHANNEL_ACCESS_TOKEN is not set.")
+            logger.warning("LINE_CHANNEL_ACCESS_TOKEN not set. Report generated but not sent to LINE.")
 
         user_id_raw: Optional[str] = self._get_env("LINE_USER_ID", default="")
         if user_id_raw:

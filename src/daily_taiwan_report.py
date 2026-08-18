@@ -450,6 +450,8 @@ def _build_summary_reason(data: StockMarketData, score_info: Dict[str, Any],
     return reason
 
 def main():
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8')
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",

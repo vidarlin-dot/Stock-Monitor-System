@@ -700,37 +700,60 @@ def load_manual_data() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
+def _is_cache_fresh(cache_data, max_age_hours=24):
+    """Check if cached data is within max_age_hours."""
+    fetched_at = cache_data.get("fetched_at", "")
+    if not fetched_at:
+        return False
+    try:
+        dt = datetime.strptime(fetched_at, "%Y-%m-%d %H:%M")
+        dt = TW_TZ.localize(dt)
+        return (datetime.now(TW_TZ) - dt).total_seconds() < max_age_hours * 3600
+    except Exception:
+        return False
+
+
 def fetch_all_stock_data(tickers: List[str]) -> Dict[str, StockMarketData]:
     """Fetch market data for multiple tickers with retry + cache fallback."""
     results: Dict[str, StockMarketData] = {}
     for ticker in tickers:
+        # Step 1: Try cache first (fast, no network)
+        cached = _load_cache(ticker)
+        if cached and _is_cache_fresh(cached):
+            cd = StockMarketData(**cached)
+            results[ticker] = cd
+            logger.info("%s: using fresh cache", ticker)
+            continue
+
+        # Step 2: Fetch from Yahoo Finance
         data = None
-        for attempt in range(3):
+        for attempt in range(2):
             data = fetch_taiwan_stock_data(ticker)
             if data and data.current_price > 0:
                 break
-            if attempt < 2:
+            if attempt < 1:
                 wait = (attempt + 1) * 2
                 logger.warning("%s: fetch failed, retrying in %ds...", ticker, wait)
                 time.sleep(wait)
         if data and data.current_price > 0:
             results[ticker] = data
             logger.info("%s: price=%.2f rec=%s", ticker, data.current_price, data.rec_label)
+            continue
+
+        # Step 3: Fallback to cache (even if stale)
+        if cached:
+            cd = StockMarketData(**cached)
+            results[ticker] = cd
+            logger.info("%s: using stale cache", ticker)
+            continue
+
+        # Step 4: Fallback to manual data
+        manual = load_manual_data()
+        if ticker in manual:
+            md = manual[ticker]
+            cd = StockMarketData(**md)
+            results[ticker] = cd
+            logger.info("%s: using manual data", ticker)
         else:
-            # Try cache
-            cached = _load_cache(ticker)
-            if cached:
-                cd = StockMarketData(**cached)
-                results[ticker] = cd
-                logger.info("%s: using cached data (price=%.2f)", ticker, cd.current_price)
-            else:
-                # Try manual data
-                manual = load_manual_data()
-                if ticker in manual:
-                    md = manual[ticker]
-                    cd = StockMarketData(**md)
-                    results[ticker] = cd
-                    logger.info("%s: using manual data (price=%.2f)", ticker, cd.current_price)
-                else:
-                    logger.error("%s: no data available", ticker)
+            logger.error("%s: no data available", ticker)
     return results
