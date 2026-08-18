@@ -83,6 +83,7 @@ class LineNotifier:
 
     def _send_to_user(self, user_id: str, message: str) -> None:
         """Send a push message to a single user."""
+        message = self._truncate_message(message)
         payload: dict = {
             "to": user_id,
             "messages": [
@@ -119,6 +120,7 @@ class LineNotifier:
 
     def _send_broadcast(self, message: str) -> None:
         """Broadcast a message to all followers."""
+        message = self._truncate_message(message)
         payload: dict = {
             "messages": [
                 {
