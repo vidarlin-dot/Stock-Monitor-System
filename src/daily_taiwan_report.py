@@ -491,8 +491,11 @@ def main():
             sd.qfii_target = qfii_info["qfii_target"]
             sd.qfii_rating = qfii_info["qfii_rating"]
             sd.qfii_upside = qfii_info["qfii_upside"]
+            # Recalculate upside using actual stock price
+            if sd.current_price > 0 and qfii_info["qfii_target"] > 0:
+                sd.qfii_upside = round((qfii_info["qfii_target"] - sd.current_price) / sd.current_price * 100, 1)
             sd.qfii_broker = qfii_info["qfii_broker"]
-            logger.info("%s: QFII target=%s rating=%s upside=%s%%", ticker, qfii_info["qfii_target"], qfii_info["qfii_rating"], qfii_info["qfii_upside"])
+            logger.info("%s: QFII target=%s rating=%s upside=%s%%", ticker, qfii_info["qfii_target"], qfii_info["qfii_rating"], sd.qfii_upside)
 
     if not stocks_data:
         # Try cache
