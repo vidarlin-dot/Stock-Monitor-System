@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
 TW_SUFFIX = ".TW"
 
-CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), r"..\/cache\taiwan")
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache", "taiwan")
+MANUAL_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "manual_taiwan.json")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
@@ -687,6 +688,18 @@ def merge_cnyes_into_data(tickers: List[str], cnyes: Dict[str, Dict[str, Any]]) 
     return merged
 
 
+def load_manual_data() -> Dict[str, Dict[str, Any]]:
+    """Load manually-entered stock data for tickers not available on Yahoo Finance."""
+    if not os.path.exists(MANUAL_DATA_PATH):
+        return {}
+    try:
+        with open(MANUAL_DATA_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.warning("Failed to load manual data: %s", exc)
+        return {}
+
+
 def fetch_all_stock_data(tickers: List[str]) -> Dict[str, StockMarketData]:
     """Fetch market data for multiple tickers with retry + cache fallback."""
     results: Dict[str, StockMarketData] = {}
@@ -711,5 +724,13 @@ def fetch_all_stock_data(tickers: List[str]) -> Dict[str, StockMarketData]:
                 results[ticker] = cd
                 logger.info("%s: using cached data (price=%.2f)", ticker, cd.current_price)
             else:
-                logger.error("%s: no data available", ticker)
+                # Try manual data
+                manual = load_manual_data()
+                if ticker in manual:
+                    md = manual[ticker]
+                    cd = StockMarketData(**md)
+                    results[ticker] = cd
+                    logger.info("%s: using manual data (price=%.2f)", ticker, cd.current_price)
+                else:
+                    logger.error("%s: no data available", ticker)
     return results
