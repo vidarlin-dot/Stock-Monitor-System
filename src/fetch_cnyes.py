@@ -1,97 +1,127 @@
-﻿# -*- coding: utf-8 -*-
-"""Fetch QFII analyst ratings from cnyes.com - scrape all 11 pages."""
-import json
-import logging
-import os
-import re
-import requests
-
+# -*- coding: utf-8 -*-
+import json, logging, os, re
 logger = logging.getLogger(__name__)
+BASE_URL = 'https://www.cnyes.com/archive/twstock/board/ratediff.aspx?gt=qfii&gp=rate'
 
-BASE_URL = "https://www.cnyes.com/archive/twstock/board/ratediff.aspx?gt=qfii&gp=rate"
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-
-def fetch_all_qfii_ratings() -> dict:
-    """Fetch all QFII ratings from all 11 pages."""
-    all_ratings: dict = {}
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    for page in range(1, 12):
-        url = BASE_URL + ("&pg=" + str(page) if page > 1 else "")
-        try:
-            r = session.get(url, timeout=20)
-            r.raise_for_status()
-        except Exception as e:
-            logger.warning("Failed to fetch page %d: %s", page, e)
-            continue
-
-        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", r.text, re.DOTALL | re.IGNORECASE)
-        count = 0
-        for row in rows[1:]:
-            cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
-            cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-            if len(cells) < 9 or not cells[0] or cells[0] == "評等日期":
+def _parse_rows(html):
+    rows = []
+    tables = re.findall(r'<table[^>]*>(.*?)</table>', html, re.DOTALL | re.IGNORECASE)
+    for th in tables:
+        trs = re.findall(r'<tr[^>]*>(.*?)</tr>', th, re.DOTALL | re.IGNORECASE)
+        for row in trs[1:]:
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL | re.IGNORECASE)
+            cells = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+            if len(cells) < 9 or not cells[0] or cells[0] == chr(0x8a55)+chr(0x7b49)+chr(0x65e5)+chr(0x671f):
                 continue
             try:
-                date = cells[0]
-                ticker_raw = cells[1]
-                m = re.search(r"(\d+)", ticker_raw)
-                if not m:
-                    continue
+                date, ticker_raw = cells[0], cells[1]
+                m = re.search(r'(\d+)', ticker_raw)
+                if not m: continue
                 ticker = m.group(1)
-                name = ticker_raw.replace(ticker, "").replace("-", "").strip()
-                broker = cells[2]
-                new_rat = cells[5]
-                new_tgt = cells[7]
-                curr = cells[8]
-                if ticker not in all_ratings or date > all_ratings[ticker].get("date", ""):
-                    all_ratings[ticker] = {
-                        "date": date, "ticker": ticker, "name": name,
-                        "broker": broker, "new_rating": new_rat,
-                        "new_target": new_tgt, "current_price": curr,
-                    }
-                count += 1
-            except Exception as e:
-                logger.debug("Parse error: %s", e)
-        logger.info("Page %d: %d rows", page, count)
+                name = ticker_raw.replace(ticker, '').replace('-', '').strip()
+                rows.append({'date': date, 'ticker': ticker, 'name': name, 'broker': cells[2], 'new_rating': cells[5], 'new_target': cells[7], 'current_price': cells[8]})
+            except Exception: continue
+    return rows
 
+def fetch_all_qfii_ratings():
+    all_ratings = {}
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            for pg in range(1, 12):
+                url = BASE_URL + ('&pg=' + str(pg) if pg > 1 else '')
+                try:
+                    page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                    page.wait_for_timeout(2000)
+                    rows = _parse_rows(page.content())
+                    for r in rows:
+                        t = r['ticker']
+                        if t not in all_ratings or r['date'] > all_ratings[t].get('date', ''):
+                            all_ratings[t] = r
+                    logger.info('Page %d: %d rows', pg, len(rows))
+                except Exception as e:
+                    logger.warning('Page %d error: %s', pg, e)
+            browser.close()
+    except ImportError:
+        logger.warning('playwright not available')
     return all_ratings
 
-
-def load_cnyes_ratings() -> dict:
-    """Load QFII ratings - scrape fresh data each time."""
-    ratings = fetch_all_qfii_ratings()
-    logger.info("Auto-scraped %d ratings from cnyes", len(ratings))
-
-    # Manual fallback for tickers not in web scrape
+def load_cnyes_ratings():
+    cache_path = os.path.join(os.path.dirname(__file__), 'cache', 'cnyes_ratings.json')
+    cached = {}
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding='utf-8') as f:
+                cached = json.load(f)
+            logger.info('Loaded %d from cache', len(cached))
+        except Exception:
+            cached = {}
+    fresh = fetch_all_qfii_ratings()
+    merged = dict(cached)
+    for t, r in fresh.items():
+        if t not in merged or r['date'] > merged[t].get('date', ''):
+            merged[t] = r
     manual_qfii = {
-        "3443": {"date": "20260708", "ticker": "3443", "name": "創意", "broker": "Factset", "new_rating": "", "new_target": "5535", "current_price": ""},
-        "2330": {"date": "20260707", "ticker": "2330", "name": "台積電", "broker": "Factset", "new_rating": "強力買進", "new_target": "2888", "current_price": "2380"},
-        "2327": {"date": "20260702", "ticker": "2327", "name": "國巨", "broker": "Factset", "new_rating": "買進", "new_target": "1040", "current_price": "576"},
-        "2454": {"date": "20260703", "ticker": "2454", "name": "聯發科", "broker": "Factset", "new_rating": "", "new_target": "5350", "current_price": "3885"},
-        "1303": {"date": "20260703", "ticker": "1303", "name": "南亞", "broker": "Factset", "new_rating": "觀望", "new_target": "156", "current_price": "200"},
-        "2408": {"date": "20260707", "ticker": "2408", "name": "南亞科", "broker": "Factset", "new_rating": "買進", "new_target": "548", "current_price": "515"},
-        "2059": {"date": "20260707", "ticker": "2059", "name": "川湖", "broker": "Factset", "new_rating": "", "new_target": "14370", "current_price": ""},
-        "3189": {"date": "20260701", "ticker": "3189", "name": "景碩", "broker": "Factset", "new_rating": "強力買進", "new_target": "680", "current_price": "865"},
-        "9910": {"date": "20260702", "ticker": "9910", "name": "豐泰", "broker": "Factset", "new_rating": "", "new_target": "80.2", "current_price": "69.1"},
-        "2881": {"date": "20260702", "ticker": "2881", "name": "富邦金", "broker": "Factset", "new_rating": "", "new_target": "129.5", "current_price": ""},
-        "2882": {"date": "20260702", "ticker": "2882", "name": "國泰金", "broker": "Factset", "new_rating": "超越市場", "new_target": "105", "current_price": "99.2"},
-        "3105": {"date": "20260708", "ticker": "3105", "name": "穩懋", "broker": "Factset", "new_rating": "觀望", "new_target": "562.5", "current_price": "374.5"},
-        "1795": {"date": "20260708", "ticker": "1795", "name": "美時", "broker": "Factset", "new_rating": "中立", "new_target": "212.5", "current_price": "184"},
-        "3034": {"date": "20260708", "ticker": "3034", "name": "聯詠", "broker": "Factset", "new_rating": "", "new_target": "505", "current_price": ""},
-        "2383": {"date": "20260707", "ticker": "2383", "name": "台光電", "broker": "Factset", "new_rating": "", "new_target": "6205", "current_price": ""},
-        "8210": {"date": "20260707", "ticker": "8210", "name": "勤誠", "broker": "Factset", "new_rating": "", "new_target": "1025", "current_price": ""},
-        "1476": {"date": "20260707", "ticker": "1476", "name": "儒鴻", "broker": "Factset", "new_rating": "", "new_target": "310.5", "current_price": ""},
-        "6488": {"date": "20260713", "ticker": "6488", "name": "", "broker": "Factset", "new_rating": "符合市場", "new_target": "775", "current_price": "1060"},
-        "6446": {"date": "20260703", "ticker": "6446", "name": "", "broker": "Factset", "new_rating": "無", "new_target": "1125", "current_price": "1400"},
-        "2610": {"date": "20260703", "ticker": "2610", "name": "華航", "broker": "Factset", "new_rating": "無", "new_target": "21", "current_price": "20.1"},
-        "8299": {"date": "20260615", "ticker": "8299", "name": "群聯", "broker": "Factset", "new_rating": "", "old_target": "3000", "new_target": "2000", "current_price": ""},
+        '3017': {'date': '20260810', 'ticker': '3017', 'name': '奇鋐', 'broker': 'Factset', 'new_rating': '', 'new_target': '3890', 'current_price': ''},
+        '3661': {'date': '20260805', 'ticker': '3661', 'name': '世芯-KY', 'broker': 'Factset', 'new_rating': '', 'new_target': '4200', 'current_price': ''},
+        '6515': {'date': '20260801', 'ticker': '6515', 'name': '穎崴', 'broker': 'Factset', 'new_rating': '', 'new_target': '14800', 'current_price': ''},
+        '5289': {'date': '20260715', 'ticker': '5289', 'name': '宜鼎', 'broker': 'Factset', 'new_rating': '', 'new_target': '360', 'current_price': ''},
+        '2317': {'date': '20260810', 'ticker': '2317', 'name': '鴻海', 'broker': 'Factset', 'new_rating': '', 'new_target': '435', 'current_price': ''},
+        '3037': {'date': '20260713', 'ticker': '3037', 'name': '欣興', 'broker': 'Factset', 'new_rating': '', 'new_target': '975', 'current_price': ''},
+        '3443': {'date': '20260708', 'ticker': '3443', 'name': '創意', 'broker': 'Factset', 'new_rating': '', 'new_target': '5535', 'current_price': ''},
+        '8299': {'date': '20260615', 'ticker': '8299', 'name': '群聯', 'broker': 'Factset', 'new_rating': '', 'old_target': '3000', 'new_target': '2000', 'current_price': ''},
+        '2330': {'date': '20260707', 'ticker': '2330', 'name': '台積電', 'broker': 'Factset', 'new_rating': '強力買進', 'new_target': '2888', 'current_price': '2380'},
+        '2327': {'date': '20260702', 'ticker': '2327', 'name': '國巨', 'broker': 'Factset', 'new_rating': '買進', 'new_target': '1040', 'current_price': '576'},
+        '2454': {'date': '20260703', 'ticker': '2454', 'name': '聯發科', 'broker': 'Factset', 'new_rating': '', 'new_target': '5350', 'current_price': '3885'},
+        '1303': {'date': '20260703', 'ticker': '1303', 'name': '南亞', 'broker': 'Factset', 'new_rating': '觀望', 'new_target': '156', 'current_price': '200'},
+        '2408': {'date': '20260707', 'ticker': '2408', 'name': '南亞科', 'broker': 'Factset', 'new_rating': '買進', 'new_target': '548', 'current_price': '515'},
+        '2059': {'date': '20260707', 'ticker': '2059', 'name': '川湖', 'broker': 'Factset', 'new_rating': '', 'new_target': '14370', 'current_price': ''},
+        '3189': {'date': '20260701', 'ticker': '3189', 'name': '景碩', 'broker': 'Factset', 'new_rating': '強力買進', 'new_target': '680', 'current_price': '865'},
+        '9910': {'date': '20260702', 'ticker': '9910', 'name': '豐泰', 'broker': 'Factset', 'new_rating': '', 'new_target': '80.2', 'current_price': '69.1'},
+        '2881': {'date': '20260702', 'ticker': '2881', 'name': '富邦金', 'broker': 'Factset', 'new_rating': '', 'new_target': '129.5', 'current_price': ''},
+        '2882': {'date': '20260702', 'ticker': '2882', 'name': '國泰金', 'broker': 'Factset', 'new_rating': '超越市場', 'new_target': '105', 'current_price': '99.2'},
+        '3105': {'date': '20260708', 'ticker': '3105', 'name': '穩懋', 'broker': 'Factset', 'new_rating': '觀望', 'new_target': '562.5', 'current_price': '374.5'},
+        '1795': {'date': '20260708', 'ticker': '1795', 'name': '美時', 'broker': 'Factset', 'new_rating': '中立', 'new_target': '212.5', 'current_price': '184'},
+        '3034': {'date': '20260708', 'ticker': '3034', 'name': '聯詠', 'broker': 'Factset', 'new_rating': '', 'new_target': '505', 'current_price': ''},
+        '2383': {'date': '20260707', 'ticker': '2383', 'name': '台光電', 'broker': 'Factset', 'new_rating': '', 'new_target': '6205', 'current_price': ''},
+        '8210': {'date': '20260707', 'ticker': '8210', 'name': '勤誠', 'broker': 'Factset', 'new_rating': '', 'new_target': '1025', 'current_price': ''},
+        '1476': {'date': '20260707', 'ticker': '1476', 'name': '儒鴻', 'broker': 'Factset', 'new_rating': '', 'new_target': '310.5', 'current_price': ''},
+        '6488': {'date': '20260713', 'ticker': '6488', 'name': '', 'broker': 'Factset', 'new_rating': '符合市場', 'new_target': '775', 'current_price': '1060'},
+        '6446': {'date': '20260703', 'ticker': '6446', 'name': '', 'broker': 'Factset', 'new_rating': '無', 'new_target': '1125', 'current_price': '1400'},
+        '2610': {'date': '20260703', 'ticker': '2610', 'name': '華航', 'broker': 'Factset', 'new_rating': '無', 'new_target': '21', 'current_price': '20.1'},
+        '2382': {'date': '20260814', 'ticker': '2382', 'name': '廣達', 'broker': 'Factset', 'new_rating': '無', 'new_target': '412.5', 'current_price': '327'},
+        '4958': {'date': '20260812', 'ticker': '4958', 'name': 'F臻鼎', 'broker': 'Factset', 'new_rating': '', 'new_target': '640', 'current_price': '474'},
+        '3044': {'date': '20260812', 'ticker': '3044', 'name': '健鼎', 'broker': 'Factset', 'new_rating': '強力買進', 'new_target': '646', 'current_price': '488.5'},
+        '2368': {'date': '20260812', 'ticker': '2368', 'name': '金像電', 'broker': 'Factset', 'new_rating': '', 'new_target': '1695', 'current_price': '1070'},
+        '8046': {'date': '20260812', 'ticker': '8046', 'name': '南電', 'broker': 'Factset', 'new_rating': '', 'new_target': '1500', 'current_price': '1245'},
+        '2356': {'date': '20260812', 'ticker': '2356', 'name': '英業達', 'broker': 'Factset', 'new_rating': '中立', 'new_target': '58', 'current_price': '64.9'},
+        '1560': {'date': '20260814', 'ticker': '1560', 'name': '中砂', 'broker': 'Factset', 'new_rating': '', 'new_target': '860', 'current_price': '708'},
+        '8069': {'date': '20260814', 'ticker': '8069', 'name': '元太', 'broker': 'Factset', 'new_rating': '', 'new_target': '233', 'current_price': '157.5'},
+        '2912': {'date': '20260814', 'ticker': '2912', 'name': '統一超', 'broker': 'Factset', 'new_rating': '', 'new_target': '277.5', 'current_price': '215'},
+        '3036': {'date': '20260814', 'ticker': '3036', 'name': '文曄', 'broker': 'Factset', 'new_rating': '', 'new_target': '310', 'current_price': '202'},
+        '4551': {'date': '20260817', 'ticker': '4551', 'name': '智伸科', 'broker': 'Factset', 'new_rating': '', 'new_target': '238', 'current_price': '163.5'},
+        '2618': {'date': '20260817', 'ticker': '2618', 'name': '長榮航', 'broker': 'Factset', 'new_rating': '', 'new_target': '47.75', 'current_price': '41.9'},
+        '6669': {'date': '20260817', 'ticker': '6669', 'name': '緯穎', 'broker': 'Factset', 'new_rating': '', 'new_target': '8022.5', 'current_price': '6400'},
+        '2357': {'date': '20260817', 'ticker': '2357', 'name': '華碩', 'broker': 'Factset', 'new_rating': '', 'new_target': '1030', 'current_price': '910'},
+        '2337': {'date': '20260817', 'ticker': '2337', 'name': '旺宏', 'broker': 'Factset', 'new_rating': '', 'new_target': '183', 'current_price': '122'},
+        '2344': {'date': '20260817', 'ticker': '2344', 'name': '華邦電', 'broker': 'Factset', 'new_rating': '', 'new_target': '238', 'current_price': '176.5'},
+        '2324': {'date': '20260817', 'ticker': '2324', 'name': '仁寶', 'broker': 'Factset', 'new_rating': '', 'new_target': '40', 'current_price': '40.6'},
+        '3529': {'date': '20260818', 'ticker': '3529', 'name': '力旺', 'broker': 'Factset', 'new_rating': '超越市場', 'new_target': '3900', 'current_price': '2340'},
+        '6223': {'date': '20260818', 'ticker': '6223', 'name': '旺矽', 'broker': 'Factset', 'new_rating': '超越市場', 'new_target': '8500', 'current_price': '5270'},
+        '2345': {'date': '20260818', 'ticker': '2345', 'name': '智邦', 'broker': 'Factset', 'new_rating': '', 'new_target': '3500', 'current_price': '2225'},
+        '2376': {'date': '20260818', 'ticker': '2376', 'name': '技嘉', 'broker': 'Factset', 'new_rating': '超越市場', 'new_target': '444', 'current_price': '348'},
+        '1326': {'date': '20260811', 'ticker': '1326', 'name': '台化', 'broker': 'Factset', 'new_rating': '', 'new_target': '80', 'current_price': '59.4'},
     }
-    for ticker, data in manual_qfii.items():
-        if ticker not in ratings:
-            ratings[ticker] = data
-    logger.info("Total QFII ratings: %d (auto: %d, manual: %d)", len(ratings), len(ratings) - len(manual_qfii), len(manual_qfii))
-    return ratings
-
+    for t, d in manual_qfii.items():
+        if t not in merged or d['date'] > merged[t].get('date', ''):
+            merged[t] = d
+    logger.info('Total QFII: %d (manual: %d)', len(merged), len(manual_qfii))
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(merged, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning('Cache save failed: %s', e)
+    return merged

@@ -43,7 +43,7 @@ class GoogleSheetsManager:
 
         Supports both English and Chinese column headers.
         """
-        self.worksheet = self.client.open(self.sheet_name).worksheet("Holdings")
+        self.worksheet = self.client.open_by_key(self.sheet_name) if "_" in self.sheet_name else self.client.open(self.sheet_name).worksheet("Holdings")
         rows: List[List[Any]] = self.worksheet.get_all_values()
 
         if len(rows) < 2:
@@ -173,7 +173,7 @@ class GoogleSheetsManager:
 
         Supports both English and Chinese column headers.
         """
-        worksheet = self.client.open(self.sheet_name).worksheet("Taiwan_Stock")
+        worksheet = (self.client.open_by_key(self.sheet_name) if "_" in self.sheet_name else self.client.open(self.sheet_name)).worksheet("Taiwan_Stock")
         rows: List[List[Any]] = worksheet.get_all_values()
 
         if len(rows) < 2:
