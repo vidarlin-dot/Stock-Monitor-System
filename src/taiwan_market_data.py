@@ -653,17 +653,21 @@ def _news_sector_score(news_list: List[Dict[str, Any]]) -> float:
 # ---------------------------------------------------------------------------
 
 def load_cnyes_ratings() -> Dict[str, Dict[str, Any]]:
-    """Load QFII analyst ratings from cnyes cache file."""
-    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cache', 'cnyes')
-    path = os.path.join(cache_dir, 'latest.json')
-    if not os.path.exists(path):
-        logger.warning('cnyes cache not found: %s', path)
-        return {}
+    """Load QFII analyst ratings - scrape all pages + manual fallback."""
     try:
-        with open(path, encoding='utf-8') as f:
-            return json.load(f)
+        from fetch_cnyes import load_cnyes_ratings as _load
+        return _load()
     except Exception as exc:
-        logger.warning('Failed to load cnyes ratings: %s', exc)
+        logger.warning('Failed to load cnyes ratings from fetch_cnyes: %s', exc)
+        # Fallback to cache
+        cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cache', 'cnyes')
+        path = os.path.join(cache_dir, 'latest.json')
+        if os.path.exists(path):
+            try:
+                with open(path, encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
         return {}
 
 
