@@ -1,4 +1,4 @@
-name: Daily Taiwan Stock Monitor
+﻿name: Daily Taiwan Stock Monitor
 
 on:
   schedule:
@@ -29,16 +29,16 @@ jobs:
 
       - name: Update QFII data in Google Sheet
         run: |
-          printf '%s' \ > /tmp/gcp_key.json
-          GCP_SERVICE_ACCOUNT_JSON="\\" python src/update_qfii_sheet.py
+          printf '%s' "$GCP_SERVICE_ACCOUNT_JSON" > /tmp/gcp_key.json
+          GCP_SERVICE_ACCOUNT_JSON="$(cat /tmp/gcp_key.json)" python src/update_qfii_sheet.py
         env:
-          GCP_SERVICE_ACCOUNT_JSON: \${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
 
       - name: Run Taiwan Stock Focus Report
         env:
-          GCP_SERVICE_ACCOUNT_JSON: \${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
-          SHEET_NAME: \${{ secrets.SHEET_NAME }}
-          LINE_CHANNEL_ACCESS_TOKEN: \${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_USER_ID: \${{ secrets.LINE_USER_ID }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: |
           python src/daily_taiwan_report.py
