@@ -1,4 +1,4 @@
-﻿name: Daily Taiwan Stock Monitor
+name: Daily Taiwan Stock Monitor
 
 on:
   schedule:
