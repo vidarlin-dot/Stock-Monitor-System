@@ -87,9 +87,11 @@ def load_cnyes_ratings() -> dict:
         "6488": {"date": "20260713", "ticker": "6488", "name": "", "broker": "Factset", "new_rating": "符合市場", "new_target": "775", "current_price": "1060"},
         "6446": {"date": "20260703", "ticker": "6446", "name": "", "broker": "Factset", "new_rating": "無", "new_target": "1125", "current_price": "1400"},
         "2610": {"date": "20260703", "ticker": "2610", "name": "華航", "broker": "Factset", "new_rating": "無", "new_target": "21", "current_price": "20.1"},
+        "8299": {"date": "20260615", "ticker": "8299", "name": "群聯", "broker": "Factset", "new_rating": "", "old_target": "3000", "new_target": "2000", "current_price": ""},
     }
     for ticker, data in manual_qfii.items():
         if ticker not in ratings:
             ratings[ticker] = data
     logger.info("Total QFII ratings: %d (auto: %d, manual: %d)", len(ratings), len(ratings) - len(manual_qfii), len(manual_qfii))
     return ratings
+
