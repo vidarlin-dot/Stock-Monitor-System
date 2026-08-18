@@ -53,6 +53,16 @@ class LineNotifier:
             self.use_broadcast = True
             logger.info("LINE_USER_ID not set. Will broadcast to all followers.")
 
+    LINE_MAX_LENGTH = 5000
+
+    def _truncate_message(self, message: str) -> str:
+        if len(message) <= self.LINE_MAX_LENGTH:
+            return message
+        truncation_point = message.rfind(chr(10), 0, self.LINE_MAX_LENGTH - 50)
+        if truncation_point == -1:
+            truncation_point = self.LINE_MAX_LENGTH - 50
+        return message[:truncation_point] + chr(10) + '[truncated]'
+
     def send_push_message(self, message: str) -> None:
         """Send a message to configured recipients.
 
