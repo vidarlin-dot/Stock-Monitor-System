@@ -13,8 +13,31 @@ logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_BASE)
-KEY_PATH = os.path.abspath(os.path.join(_PROJECT_ROOT, "..", "stock-monitor-502815-d2e7cdb6f0a2.json"))
+
+def _get_service_account_credentials():
+    """Get service account credentials from env var or file."""
+    import json
+    from google.oauth2.service_account import Credentials
+    SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
+              "https://www.googleapis.com/auth/drive"]
+    
+    # Try environment variable first
+    sa_json = os.environ.get("GCP_SERVICE_ACCOUNT_JSON", "").strip()
+    if sa_json:
+        # Remove BOM if present
+        sa_json = sa_json.lstrip(chr(0xfeff))
+        creds_dict = json.loads(sa_json)
+        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    
+    # Fallback to file
+    _PROJECT_ROOT = os.path.dirname(_BASE)
+    KEY_PATH = os.path.abspath(os.path.join(_PROJECT_ROOT, "..", "stock-monitor-502815-d2e7cdb6f0a2.json"))
+    if os.path.exists(KEY_PATH):
+        with open(KEY_PATH, encoding="utf-8") as f:
+            creds_dict = json.load(f)
+        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    
+    raise ValueError("GCP_SERVICE_ACCOUNT_JSON not set and key file not found")
 
 SPREADSHEET_ID = "1Zy2eWaRT9lXcA42A_r1yGlVaxOOtYRPSVv5cp0C23hE"
 WORKSHEET_NAME = "Taiwan_Stock"
@@ -25,12 +48,7 @@ QFII_COLS = {"外資目標價": 11, "外資評等": 12, "外資上調幅度": 13
 def get_worksheet():
     """Connect to Google Sheets and return the Taiwan_Stock worksheet."""
     import gspread
-    from google.oauth2.service_account import Credentials
-    SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
-              "https://www.googleapis.com/auth/drive"]
-    with open(KEY_PATH, encoding="utf-8") as f:
-        creds_dict = json.load(f)
-    credentials = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    credentials = _get_service_account_credentials()
     client = gspread.authorize(credentials)
     return client.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
 
