@@ -125,6 +125,12 @@ class StockMarketData:
     next_earnings_date: str = ""
     earnings_history: List[Dict[str, Any]] = field(default_factory=list)
 
+    # QFII / cnyes analyst target data
+    qfii_target: float = 0.0
+    qfii_rating: str = ''
+    qfii_upside: float = 0.0
+    qfii_broker: str = ""
+
 
 def _fetch_price_history(yf_ticker: str, period: str = "6mo") -> Optional[Dict[str, Any]]:
     """Fetch price history via Yahoo Finance API (fast, with timeout)."""
@@ -158,6 +164,20 @@ def fetch_taiwan_stock_data(ticker: str) -> Optional[StockMarketData]:
     """Fetch complete market data for one Taiwan stock."""
     yf_ticker = ticker + TW_SUFFIX
     cached = _load_cache(ticker)
+
+    # --- Initialize all variables to avoid UnboundLocalError ---
+    current = prev_close = volume = 0
+    day_high = day_low = 0
+    close_5d = close_20d = close_60d = 0
+    high_20d = low_20d = 0
+    avg_vol_5d = avg_vol_20d = avg_vol_60d = 0
+    short_name = ticker
+    rec_key = ""
+    mean_target = high_target = low_target = median_target = 0
+    analysts = 0
+    news_list: List[Dict[str, Any]] = []
+    revenue_est = 0
+    eps_estimate = 0
 
     # --- Price history (fast API) ---
     history_result = _fetch_price_history(yf_ticker, period="3mo")
@@ -630,6 +650,42 @@ def _news_sector_score(news_list: List[Dict[str, Any]]) -> float:
 # ---------------------------------------------------------------------------
 # Bulk fetch
 # ---------------------------------------------------------------------------
+
+def load_cnyes_ratings() -> Dict[str, Dict[str, Any]]:
+    """Load QFII analyst ratings from cnyes cache file."""
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cache', 'cnyes')
+    path = os.path.join(cache_dir, 'latest.json')
+    if not os.path.exists(path):
+        logger.warning('cnyes cache not found: %s', path)
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.warning('Failed to load cnyes ratings: %s', exc)
+        return {}
+
+
+def merge_cnyes_into_data(tickers: List[str], cnyes: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Merge QFII rating data into per-ticker dicts."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    for ticker in tickers:
+        if ticker in cnyes:
+            r = cnyes[ticker]
+            try:
+                tgt = float(r.get('new_target') or 0)
+                price = float(r.get('current_price') or 0)
+                upside = ((tgt - price) / price * 100) if price > 0 else 0
+                merged[ticker] = {
+                    'qfii_target': tgt,
+                    'qfii_rating': str(r.get('new_rating', '')).strip(),
+                    'qfii_upside': round(upside, 1),
+                    'qfii_broker': str(r.get('broker', '')).strip(),
+                }
+            except (ValueError, TypeError):
+                pass
+    return merged
+
 
 def fetch_all_stock_data(tickers: List[str]) -> Dict[str, StockMarketData]:
     """Fetch market data for multiple tickers with retry + cache fallback."""

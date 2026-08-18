@@ -27,6 +27,8 @@ from taiwan_market_data import (
     compute_focus_score,
     fetch_all_stock_data,
     is_taiwan_trading_day,
+    load_cnyes_ratings,
+    merge_cnyes_into_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,8 @@ def _fmt_pct(val: float) -> str:
 
 def _build_focus_detail(ticker: str, data: StockMarketData,
                         h: Dict[str, Any],
-                        score_info: Dict[str, Any]) -> str:
+                        score_info: Dict[str, Any],
+                        qfii: Dict[str, Any] = None) -> str:
     """Build a compact card for one focus stock."""
     lines = []
     price = data.current_price
@@ -77,6 +80,7 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     catalyst_raw = str(h.get("catalystdate", h.get("催化劑日期", ""))).strip()
     score = score_info["focus_score"]
     category = score_info["category"]
+    qfii = qfii or {}
 
     # Build short_name: use sheet short_name if available, else use data.short_name
     short_name = str(h.get("短名", "")).strip() or data.short_name or ticker
@@ -119,9 +123,24 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     if event_text:
         lines.append(f"📅 事件：{event_text}")
 
-    # Analyst recommendation
+    # Analyst recommendation (Yahoo)
     if rec_label:
         lines.append(f"📝 分析師建議：{rec_label}（{data.analysts} 位）")
+
+    # QFII / cnyes analyst target
+    qfii_target = qfii.get("qfii_target", 0)
+    qfii_rating = qfii.get("qfii_rating", "")
+    qfii_upside = qfii.get("qfii_upside", 0)
+    qfii_broker = qfii.get("qfii_broker", "")
+    if qfii_target > 0:
+        ups_str = f"{qfii_upside:+.1f}%" if qfii_upside != 0 else "持平"
+        rating_text = qfii_rating if qfii_rating else "觀望"
+        broker_text = f"（{qfii_broker}）" if qfii_broker else ""
+        lines.append(f"🎯 外資目標價：{_fmt_price(qfii_target)} 元，潛在上漲 {_fmt_pct(qfii_upside)} {rating_text} {broker_text}")
+    elif rec_label:
+        pass  # already shown above
+    else:
+        lines.append(f"📝 分析師建議：觀望")
 
     # Operational focus from notes
     if notes_raw and len(notes_raw) > 3:
@@ -328,7 +347,10 @@ def _extract_title(item):
 
 
 def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
-                               watchlist: List[Dict[str, Any]]) -> str:
+                               watchlist: List[Dict[str, Any]],
+                               qfii_data: Dict[str, Dict[str, Any]] = None) -> str:
+    """Build the compact Taiwan focus report."""
+    qfii_data = qfii_data or {}
     """Build the compact Taiwan focus report."""
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
@@ -379,7 +401,7 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         for ticker, s in qualified[:MAX_FOCUS_STOCKS]:
             d = stock_info[ticker]["data"]
             h = stock_info[ticker]["h"]
-            lines.append(_build_focus_detail(ticker, d, h, s))
+            lines.append(_build_focus_detail(ticker, d, h, s, qfii=qfii_data.get(ticker)))
     else:
         lines.append("本日報暫無符合焦點門檻的個股。")
 
@@ -427,11 +449,24 @@ def main():
 
     logger.info("Processing %d Taiwan stock(s)...", len(watchlist))
 
-    # Fetch market data
-    stocks_data = fetch_all_stock_data(
-        [_extract_ticker_code(h.get("ticker", h.get("代碼", "")))[0]
-         for h in watchlist]
-    )
+    # Fetch cnyes QFII ratings first
+    cnyes_ratings = load_cnyes_ratings()
+    logger.info("Loaded %d QFII ratings from cnyes.", len(cnyes_ratings))
+
+    # Extract tickers and fetch market data
+    tickers = [_extract_ticker_code(h.get("ticker", h.get("代碼", "")))[0] for h in watchlist]
+    stocks_data = fetch_all_stock_data(tickers)
+
+    # Merge QFII data into stock data
+    qfii_merged = merge_cnyes_into_data(tickers, cnyes_ratings)
+    for ticker, qfii_info in qfii_merged.items():
+        if ticker in stocks_data:
+            sd = stocks_data[ticker]
+            sd.qfii_target = qfii_info["qfii_target"]
+            sd.qfii_rating = qfii_info["qfii_rating"]
+            sd.qfii_upside = qfii_info["qfii_upside"]
+            sd.qfii_broker = qfii_info["qfii_broker"]
+            logger.info("%s: QFII target=%s rating=%s upside=%s%%", ticker, qfii_info["qfii_target"], qfii_info["qfii_rating"], qfii_info["qfii_upside"])
 
     if not stocks_data:
         # Try cache
@@ -450,7 +485,7 @@ def main():
             sys.exit(1)
 
     # Build and send report
-    report = build_taiwan_focus_report(stocks_data, watchlist)
+    report = build_taiwan_focus_report(stocks_data, watchlist, qfii_data=qfii_merged)
     print(report)
 
     notifier = LineNotifier()
