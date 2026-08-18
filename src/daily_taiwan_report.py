@@ -351,7 +351,6 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
                                qfii_data: Dict[str, Dict[str, Any]] = None) -> str:
     """Build the compact Taiwan focus report."""
     qfii_data = qfii_data or {}
-    """Build the compact Taiwan focus report."""
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
     prev_tw = now_tw - timedelta(days=1)
@@ -380,8 +379,30 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
     qualified = [(t, s) for t, s in all_scores.items() if s["focus_score"] >= FOCUS_THRESHOLD]
     qualified.sort(key=lambda x: x[1]["focus_score"], reverse=True)
 
+    # Auto-include 焦點股 from sheet (bypasses FocusScore threshold)
+    auto_focus: List[str] = []
+    for h in watchlist:
+        ticker = _extract_ticker_code(h.get("ticker", h.get("代碼", "")))[0]
+        if not ticker or ticker not in all_scores:
+            continue
+        tracking = str(h.get("追蹤", "")).strip()
+        if tracking == "焦點股" and ticker not in [t for t, _ in qualified]:
+            auto_focus.append(ticker)
+            # Ensure score info exists
+            if ticker not in all_scores:
+                score_info = compute_focus_score(stocks_data[ticker], h)
+                all_scores[ticker] = score_info
+                stock_info[ticker] = {"data": stocks_data[ticker], "h": h, "score": score_info}
+    if auto_focus:
+        # Insert auto-focus stocks at top, preserving score order for rest
+        existing = [(t, s) for t, s in qualified if t not in auto_focus]
+        auto_entries = [(t, all_scores[t]) for t in auto_focus]
+        qualified = auto_entries + existing
+
     # --- Summary section: priority ranking ---
     lines.append("下週優先觀察排序")
+    if auto_focus:
+        lines.append(f"[自動焦點股 {len(auto_focus)} 檔]")
     if qualified:
         top_n = min(len(qualified), 6)
         for i in range(top_n):
@@ -412,6 +433,9 @@ def _build_summary_reason(data: StockMarketData, score_info: Dict[str, Any],
                           h: Dict[str, Any]) -> str:
     parts = []
     notes = str(h.get("notes", h.get("備註", ""))).strip()
+    tracking = str(h.get("追蹤", "")).strip()
+    if tracking == "焦點股":
+        parts.append("【自動焦點股】")
     if notes:
         parts.append(notes[:30])
     if data.day_change_pct > 0:

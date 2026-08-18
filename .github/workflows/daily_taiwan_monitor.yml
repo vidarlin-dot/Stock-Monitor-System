@@ -26,6 +26,13 @@ jobs:
         run: |
           python src/fetch_cnyes.py
 
+      - name: Update QFII data in Google Sheet
+        run: |
+          printf '"'"'%s'"'"' "$GCP_SERVICE_ACCOUNT_JSON" > /tmp/gcp_key.json
+          GCP_SERVICE_ACCOUNT_JSON="$(cat /tmp/gcp_key.json)" python src/update_qfii_sheet.py
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+
       - name: Run Taiwan Stock Focus Report
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
