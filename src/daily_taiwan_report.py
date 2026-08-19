@@ -348,7 +348,8 @@ def _extract_title(item):
 
 def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
                                watchlist: List[Dict[str, Any]],
-                               qfii_data: Dict[str, Dict[str, Any]] = None) -> str:
+                               qfii_data: Dict[str, Dict[str, Any]] = None,
+                                 cnyes_ratings: Dict[str, Dict[str, Any]] = None) -> str:
     """Build the compact Taiwan focus report."""
     qfii_data = qfii_data or {}
     now_tw = datetime.now(TW_TZ)
@@ -525,7 +526,7 @@ def main():
             sys.exit(1)
 
     # Build and send report
-    report = build_taiwan_focus_report(stocks_data, watchlist, qfii_data=qfii_merged)
+    report = build_taiwan_focus_report(stocks_data, watchlist, qfii_data=qfii_merged, cnyes_ratings=cnyes_ratings)
     print(report)
 
     notifier = LineNotifier()
