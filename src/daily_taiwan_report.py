@@ -72,111 +72,56 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     price = data.current_price
     target = data.mean_target
     rec_label = data.rec_label
-    change = data.day_change_pct
-    prev_close = data.previous_close
-    high_20d = data.high_20d
-    low_20d = data.low_20d
-    notes_raw = str(h.get("notes", h.get("備註", ""))).strip()
-    catalyst_raw = str(h.get("catalystdate", h.get("催化劑日期", ""))).strip()
-    score = score_info["focus_score"]
+    notes_raw = str(h.get("備註", "")).strip()
+    catalyst_raw = str(h.get("催化劑日期", "")).strip()
     category = score_info["category"]
     qfii = qfii or {}
-
-    # Build short_name: use sheet short_name if available, else use data.short_name
     short_name = str(h.get("短名", "")).strip() or data.short_name or ticker
 
-    lines.append("")
-    lines.append(f"📊 {ticker} {short_name}")
-    lines.append("")
-
-    # Current price
+    lines.append(f"\n📊 {ticker} {short_name}")
     lines.append(f"📈 當前價：{_fmt_price(price)} 元")
 
-    # Trade ranges
-    buy_range, hold_range, sell_range, stop_loss = _compute_trade_range(data)
+    # Trade ranges (compact)
+    buy_range, _, sell_range, _ = _compute_trade_range(data)
     if buy_range:
         lines.append(f"⬆️ 買進區間：{buy_range}")
     if sell_range:
         lines.append(f"⬇️ 賣出區間：{sell_range}")
 
-    # Event
-    event_text = ""
-    if catalyst_raw and len(catalyst_raw) > 2:
-        event_text = catalyst_raw
-    if notes_raw and len(notes_raw) > 3:
-        if event_text:
-            event_text = event_text + "；" + notes_raw[:40]
-        else:
-            event_text = notes_raw[:80]
-    # Add key news catalyst
-    for item in data.news_list[:2]:
-        title = _extract_title(item)
-        if title and len(title) > 5:
-            if notes_raw and notes_raw in title:
-                continue
-            if title not in event_text:
-                if event_text:
-                    event_text = event_text + "；" + title[:30]
-                else:
-                    event_text = title[:60]
-            break
+    # Event (compact)
+    event_text = catalyst_raw[:50] if catalyst_raw else ""
+    if notes_raw and not event_text:
+        event_text = notes_raw[:50]
     if event_text:
         lines.append(f"📅 事件：{event_text}")
 
-    # Analyst recommendation (Yahoo)
+    # Analyst recommendation + QFII target (merged)
+    analyst_info = []
     if rec_label:
-        lines.append(f"📝 分析師建議：{rec_label}（{data.analysts} 位）")
-
-    # QFII / cnyes analyst target
+        analyst_info.append(f"{rec_label}({data.analysts}位)")
     qfii_target = qfii.get("qfii_target", 0)
-    qfii_rating = qfii.get("qfii_rating", "")
     qfii_upside = qfii.get("qfii_upside", 0)
     qfii_broker = qfii.get("qfii_broker", "")
     if qfii_target > 0:
-        ups_str = f"{qfii_upside:+.1f}%" if qfii_upside != 0 else "持平"
-        rating_text = qfii_rating if qfii_rating else "觀望"
-        broker_text = f"（{qfii_broker}）" if qfii_broker else ""
-        lines.append(f"🎯 外資目標價：{_fmt_price(qfii_target)} 元，潛在上漲 {_fmt_pct(qfii_upside)} {rating_text} {broker_text}")
-    elif rec_label:
-        pass  # already shown above
-    else:
-        lines.append(f"📝 分析師建議：觀望")
+        ups = f"{qfii_upside:+.1f}%" if qfii_upside != 0 else "持平"
+        broker = f" {qfii_broker}" if qfii_broker else ""
+        analyst_info.append(f"目標{_fmt_price(qfii_target)}({ups}{broker})")
+    if analyst_info:
+        lines.append(f"📝 建議：{' | '.join(analyst_info)}")
 
-    # Operational focus from notes
-    if notes_raw and len(notes_raw) > 3:
-        lines.append(f"📆 營運焦點：{notes_raw[:60]}")
+    # Sentiment
+    sentiment_map = {"偏多焦點": "偏多", "風險焦點": "偏空", "中性觀察": "中性"}
+    lines.append(f"💬 情緒：{sentiment_map.get(category, "偏多")}")
 
-    # Market sentiment
-    if category == "偏多焦點":
-        sentiment = "偏多"
-    elif category == "風險焦點":
-        sentiment = "偏空"
-    elif category == "中性觀察":
-        sentiment = "中性"
-    else:
-        sentiment = "偏多"
-    lines.append(f"💬 市場情緒：{sentiment}")
-
-    # Notes / key insight
-    note_lines = []
+    # Key insight (compact)
+    insights = []
     if target > 0 and price > 0:
         ups = (target - price) / price * 100
-        note_lines.append(f"目標價{_fmt_price(target)} 元，距現價{_fmt_pct(ups)}")
-    if data.earnings_history:
-        eh = data.earnings_history[0]
-        if eh.get("actual_eps", 0) > 0:
-            note_lines.append(f"上季 EPS {_fmt_price(eh['actual_eps'])} 元（{eh.get('date', '')}）")
-    if data.eps_estimate > 0:
-        note_lines.append(f"本季 EPS 預估 {_fmt_price(data.eps_estimate)} 元")
-    if data.revenue_est > 0:
-        rev_t = data.revenue_est / 1e8
-        note_lines.append(f"本季營收預估 約 {rev_t:.0f} 億元")
-    if score_info["risk_penalty"] >= 5:
-        note_lines.append(f"風險扣分 {score_info['risk_penalty']:.0f} 分，注意風險")
-
-    if note_lines:
-        note_str = "；".join(note_lines[:3])
-        lines.append(f"📝 備註：{note_str}")
+        insights.append(f"目標距現{_fmt_pct(ups)}")
+    if notes_raw:
+        insights.append(notes_raw[:40])
+    if insights:
+        lines.append(f"📝 備註：{'；'.join(insights[:2])}")
 
     return "\n".join(lines)
 
