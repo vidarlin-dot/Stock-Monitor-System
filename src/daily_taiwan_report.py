@@ -399,23 +399,34 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         auto_entries = [(t, all_scores[t]) for t in auto_focus]
         qualified = auto_entries + existing
 
-    # --- Summary section: priority ranking ---
-    lines.append("下週優先觀察排序")
-    if auto_focus:
-        lines.append(f"[自動焦點股 {len(auto_focus)} 檔]")
-    if qualified:
-        top_n = min(len(qualified), 6)
-        for i in range(top_n):
-            ticker, s = qualified[i]
+    # --- QFII target change alert (today) ---
+    today_str = datetime.now(TW_TZ).strftime("%Y%m%d")
+    today_alerts = []
+    for ticker, qfii in qfii_data.items():
+        if ticker in cnyes_ratings:
+            rating = cnyes_ratings[ticker]
+            rating_date = rating.get("date", "")
+            if rating_date == today_str:
+                name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
+                target = qfii.get("qfii_target", 0)
+                if target > 0:
+                    today_alerts.append(f"{name} ({ticker}) - 外資調整目標價至 {_fmt_price(target)} 元")
+    if today_alerts:
+        lines.append("今日外資調整目標價焦點股")
+        for alert in today_alerts:
+            lines.append(alert)
+        lines.append("")
+
+    # --- Special focus stocks (non-auto, high score) ---
+    special_focus = [(t, s) for t, s in qualified if t not in auto_focus and s.get("focus_score", 0) >= 70]
+    if special_focus:
+        lines.append("")
+        lines.append("【特別焦點股】")
+        for ticker, s in special_focus[:3]:
             d = stock_info[ticker]["data"]
             h = stock_info[ticker]["h"]
             name = str(h.get("短名", "")).strip() or d.short_name or ticker
-            reason = _build_summary_reason(d, s, h)
-            lines.append(f"{name}（{ticker}）：{reason}")
-    else:
-        lines.append("  本日無符合焦點門檻的個股。")
-    lines.append("=============================================================")
-    lines.append("")
+            lines.append(f"?? {ticker} {name} | {s.get(chr(39)+chr(102)+chr(111)+chr(99)+chr(117)+chr(115)+chr(95)+chr(115)+chr(99)+chr(111)+chr(114)+chr(101)+chr(39), 0):.0f} 分 | {s.get(chr(39)+chr(99)+chr(97)+chr(116)+chr(101)+chr(103)+chr(111)+chr(114)+chr(121)+chr(39), chr(39)+chr(39))}")
 
     # --- Detail cards ---
     if qualified:
