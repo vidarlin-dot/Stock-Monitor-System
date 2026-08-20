@@ -111,7 +111,7 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
 
     # Sentiment
     sentiment_map = {"偏多焦點": "偏多", "風險焦點": "偏空", "中性觀察": "中性"}
-    lines.append(f"💬 情緒：{sentiment_map.get(category, "偏多")}")
+    lines.append(f"💬 情緒：{sentiment_map.get(category, '偏多')}")
 
     # Key insight (compact)
     insights = []
