@@ -60,25 +60,29 @@ class LineNotifier:
         if len(message) <= self.LINE_MAX_LENGTH:
             return message
         
-        # Reserve space for "[truncated]" suffix (11 characters)
         truncation_suffix = "[truncated]"
         max_content_length = self.LINE_MAX_LENGTH - len(truncation_suffix)
         
         # Search for newline in the last 100 chars before the limit
         search_start = max(0, max_content_length - 100)
-        truncation_point = message.rfind(chr(10), search_start, max_content_length)
+        truncation_point = message.rfind('\n', search_start, max_content_length)
         
-        if truncation_point == -1 or truncation_point < search_start:
+        if truncation_point == -1:
             # No good newline found, truncate at max_content_length
             truncation_point = max_content_length
         
-        truncated = message[:truncation_point].rstrip() + chr(10) + truncation_suffix
+        truncated = message[:truncation_point].rstrip() + '\n' + truncation_suffix
         
-        # Final safety check
+        # Final safety check - ensure we never exceed the limit
         if len(truncated) > self.LINE_MAX_LENGTH:
-            truncated = truncated[:self.LINE_MAX_LENGTH]
+            # If even with truncation we're over, remove more content
+            excess = len(truncated) - self.LINE_MAX_LENGTH
+            truncation_point = max(0, truncation_point - excess)
+            truncated = message[:truncation_point].rstrip() + '\n' + truncation_suffix
         
         return truncated
+
+
 
     def send_push_message(self, message: str) -> None:
         """Send a message to configured recipients.
