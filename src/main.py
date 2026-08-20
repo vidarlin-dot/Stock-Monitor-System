@@ -400,8 +400,33 @@ def main() -> None:
     print(report)
 
     notifier = LineNotifier()
-    notifier.send_push_message(report)
+    _send_report_chunks(notifier, report)
     logger.info("Daily report pushed successfully.")
+
+
+
+def _send_report_chunks(notifier, message: str, max_length: int = 4500) -> None:
+    """Send report in chunks to stay within LINE limits."""
+    if len(message) <= max_length:
+        notifier.send_push_message(message)
+        return
+    
+    # Split by stock blocks (double newlines)
+    lines = message.split("\n")
+    current_chunk = []
+    current_length = 0
+    
+    for line in lines:
+        line_len = len(line) + 1  # +1 for newline
+        if current_length + line_len > max_length and current_chunk:
+            notifier.send_push_message("\n".join(current_chunk))
+            current_chunk = []
+            current_length = 0
+        current_chunk.append(line)
+        current_length += line_len
+    
+    if current_chunk:
+        notifier.send_push_message("\n".join(current_chunk))
 
 
 if __name__ == "__main__":
