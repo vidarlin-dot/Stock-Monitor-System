@@ -338,7 +338,7 @@ def _get_company_name(ticker: str) -> str:
         "BEAM": "Beam Therapeutics",
         "NVDA": "NVIDIA",
         "GOOG": "Alphabet (Google)",
-        "TSM": "\u53f0\u84ef\u96fb",
+        "TSM": "TSMC",
         "AMD": "Advanced Micro Devices",
         "IONQ": "IonQ Inc.",
         "GLW": "Corning",
