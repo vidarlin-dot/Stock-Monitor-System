@@ -271,9 +271,16 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
         for eline in evt_info.split(chr(10)):
             lines.append(f"   {eline}")
 
+    # Show Yahoo analyst recommendation
+    analyst_rec = s.get("analyst_rec", "")
+    target_price = s.get("target_price", 0)
+    if analyst_rec:
+        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u5027\u8b70\uff1a{analyst_rec}")
+    if target_price > 0:
+        lines.append(f"   {chr(0x1F3AF)} \u76ee\u6a19\u50f9\uff1a{target_price:.2f} \u7f8e\u5143")
     analyst_comment = s.get("analyst_comment", "")
-    if analyst_comment:
-        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u5027\u8b70\uff1a{analyst_comment}")
+    if analyst_comment and analyst_comment not in ["", "N/A", "see notes", "\u898b\u5099\u8a3b"]:
+        lines.append(f"   {chr(0x1F4DD)} \u5099\u8a3b\uff1a{analyst_comment}")
 
     fin_data = s.get("fin_data")
     if fin_data and fin_data.get("summary"):
