@@ -131,7 +131,15 @@ def build_daily_report(
     report_lines.append("-" * 40)
 
     # Show all holdings with analyst comments
+    # Deduplicate by ticker
+    seen_tickers = set()
+    unique_stocks = []
     for s in urgent_stocks + major_events_list + all_stocks:
+        ticker = s.get('ticker', '')
+        if ticker and ticker not in seen_tickers:
+            seen_tickers.add(ticker)
+            unique_stocks.append(s)
+    for s in unique_stocks:
         _add_stock_block(report_lines, s)
 
     return chr(10).join(report_lines)
@@ -152,7 +160,7 @@ def _process_holding(
     sell_zone_raw = str(h.get("sellzone", h.get("\u8ce3\u51fa\u5340\u9593", "")))
     catalyst_raw = str(h.get("catalystdate", h.get("\u50ac\u5316\u5287\u65e5\u671f", "")))
     notes = str(h.get("notes", h.get("\u5099\u8a3b", ""))).strip()
-    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", h.get("\u5206\u6790\u5e08\u898b\u89e3", "\u5206\u6790\u5e08\u5061\u8b70")))).strip()
+    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", h.get("\u5206\u6790\u5e08\u5027\u8b70", "\u5206\u6790\u5e08\u5061\u8b70")))).strip()
 
     common_notes = ["\u898b\u5099\u8a3b", "see notes", "(\u898b\u5099\u8a3b)", "N/A", "", "\u2014"]
     if notes in common_notes:
@@ -252,7 +260,7 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
 
     analyst_comment = s.get("analyst_comment", "")
     if analyst_comment:
-        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u898b\u89e3\uff1a{analyst_comment}")
+        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u5027\u8b70\uff1a{analyst_comment}")
 
     fin_data = s.get("fin_data")
     if fin_data and fin_data.get("summary"):
@@ -310,7 +318,7 @@ def _get_company_name(ticker: str) -> str:
         "BEAM": "Beam Therapeutics",
         "NVDA": "NVIDIA",
         "GOOG": "Alphabet (Google)",
-        "TSM": "\u53f0\u96fb\u7a4d",
+        "TSM": "\u53f0\u84ef\u96fb",
         "AMD": "Advanced Micro Devices",
         "IONQ": "IonQ Inc.",
         "GLW": "Corning",
