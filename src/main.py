@@ -186,10 +186,21 @@ def _process_holding(
     earnings_data = fetch_earnings_calendar(ticker)
     sentiment_data = fetch_social_sentiment(ticker)
 
+    # Fetch analyst recommendations from Yahoo Finance
+    analyst_rec = ""
+    target_price = 0
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="5d")
         current_price: Optional[float] = float(hist["Close"].iloc[-1]) if not hist.empty else None
+        info = stock.info
+        # Get analyst recommendation
+        rec = info.get("recommendationKey", "")
+        if rec:
+            rec_map = {"keep": "持有", "buy": "買進", "underperform": "跑輸大盤", "sell": "賣出", "outperform": "跑贏大盤"}
+            analyst_rec = rec_map.get(rec, rec)
+        # Get target price
+        target_price = info.get("targetMeanPrice", 0) or 0
     except Exception:
         current_price = None
 
@@ -214,6 +225,8 @@ def _process_holding(
         "catalyst_raw": catalyst_raw,
         "notes": notes,
         "analyst_comment": analyst_comment,
+        "analyst_rec": analyst_rec,
+        "target_price": target_price,
         "fin_data": fin_data,
         "earnings_data": earnings_data,
         "sentiment_data": sentiment_data,
