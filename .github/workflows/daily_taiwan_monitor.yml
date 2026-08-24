@@ -1,4 +1,4 @@
-name: Daily Taiwan Stock Monitor
+﻿name: Daily Taiwan Stock Monitor
 
 on:
   schedule:
@@ -31,6 +31,13 @@ jobs:
         run: |
           printf '%s' "$GCP_SERVICE_ACCOUNT_JSON" > /tmp/gcp_key.json
           GCP_SERVICE_ACCOUNT_JSON="$(cat /tmp/gcp_key.json)" python src/update_qfii_sheet.py
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+
+      - name: Sync prices and analyst ratings to Google Sheet
+        run: |
+          printf '%s' "$GCP_SERVICE_ACCOUNT_JSON" > /tmp/gcp_key.json
+          GCP_SERVICE_ACCOUNT_JSON="$(cat /tmp/gcp_key.json)" python src/update_taiwan_prices.py
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
 
