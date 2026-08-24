@@ -709,6 +709,11 @@ def _is_cache_fresh(cache_data, max_age_hours=24):
     fetched_at = cache_data.get("fetched_at", "")
     if not fetched_at:
         return False
+    # Check if price is valid
+    price = cache_data.get("current_price", 0)
+    if price <= 0:
+        return False
+    
     try:
         dt = datetime.strptime(fetched_at, "%Y-%m-%d %H:%M")
         dt = TW_TZ.localize(dt)
