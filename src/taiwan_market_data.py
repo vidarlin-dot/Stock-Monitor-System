@@ -745,10 +745,10 @@ def fetch_all_stock_data(tickers: List[str]) -> Dict[str, StockMarketData]:
             continue
 
         # Step 3: Fallback to cache (even if stale)
-        if cached:
+        if cached and cached.get("current_price", 0) > 0:
             cd = StockMarketData(**cached)
             results[ticker] = cd
-            logger.info("%s: using stale cache", ticker)
+            logger.info("%s: using stale cache (price=%.2f)", ticker, cached.get("current_price"))
             continue
 
         # Step 4: Fallback to manual data
