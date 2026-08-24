@@ -1,0 +1,641 @@
+{
+  "6669": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 8202.0,
+    "high": 10000.0,
+    "low": 6666.0,
+    "analysts": 18,
+    "held": 0.30486
+  },
+  "3017": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 3833.1765,
+    "high": 4250.0,
+    "low": 3310.0,
+    "analysts": 17,
+    "held": 0.43829
+  },
+  "7610": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.032679997
+  },
+  "8069": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "4906": {
+    "rec": "none",
+    "label": "none",
+    "target": 27.0,
+    "high": 27.0,
+    "low": 27.0,
+    "analysts": 1,
+    "held": 0.05845
+  },
+  "5009": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "5536": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3056": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.041750003
+  },
+  "3037": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 1257.8948,
+    "high": 1700.0,
+    "low": 900.0,
+    "analysts": 19,
+    "held": 0.42834
+  },
+  "3712": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.008669999
+  },
+  "2344": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 247.57143,
+    "high": 360.0,
+    "low": 200.0,
+    "analysts": 7,
+    "held": 0.2582
+  },
+  "4979": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "6147": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "6121": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "8027": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3231": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 266.52942,
+    "high": 400.0,
+    "low": 165.0,
+    "analysts": 17,
+    "held": 0.37062
+  },
+  "6676": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "1717": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 80.0,
+    "high": 85.0,
+    "low": 75.0,
+    "analysts": 3,
+    "held": 0.093380004
+  },
+  "6405": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.0
+  },
+  "1815": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "1303": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 185.7143,
+    "high": 300.0,
+    "low": 26.0,
+    "analysts": 7,
+    "held": 0.14668
+  },
+  "3062": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.09418
+  },
+  "2317": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 347.45,
+    "high": 435.0,
+    "low": 260.0,
+    "analysts": 20,
+    "held": 0.30753002
+  },
+  "3031": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.01184
+  },
+  "2356": {
+    "rec": "hold",
+    "label": "持有/觀望",
+    "target": 66.5,
+    "high": 77.0,
+    "low": 56.0,
+    "analysts": 9,
+    "held": 0.24519
+  },
+  "1712": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.08443
+  },
+  "1229": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.0468
+  },
+  "1904": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.062589996
+  },
+  "2002": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 20.3375,
+    "high": 23.0,
+    "low": 15.7,
+    "analysts": 8,
+    "held": 0.13539
+  },
+  "1101": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 27.25,
+    "high": 36.0,
+    "low": 16.5,
+    "analysts": 4,
+    "held": 0.18509
+  },
+  "2616": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.0043200003
+  },
+  "2618": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 44.98571,
+    "high": 48.9,
+    "low": 36.0,
+    "analysts": 7,
+    "held": 0.3548
+  },
+  "2880": {
+    "rec": "none",
+    "label": "none",
+    "target": 30.0,
+    "high": 32.67327,
+    "low": 27.32673,
+    "analysts": 2,
+    "held": 0.44588003
+  },
+  "2891": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 69.12727,
+    "high": 78.0,
+    "low": 55.0,
+    "analysts": 11,
+    "held": 0.43191
+  },
+  "2881": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 117.935,
+    "high": 159.0,
+    "low": 85.85,
+    "analysts": 10,
+    "held": 0.22709
+  },
+  "2884": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 38.2,
+    "high": 41.1,
+    "low": 33.0,
+    "analysts": 6,
+    "held": 0.3033
+  },
+  "2890": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 40.46405,
+    "high": 41.17647,
+    "low": 39.21569,
+    "analysts": 3,
+    "held": 0.25233
+  },
+  "3048": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.01921
+  },
+  "3162": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3088": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3711": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 692.7368,
+    "high": 840.0,
+    "low": 350.0,
+    "analysts": 19,
+    "held": 0.35831
+  },
+  "4904": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 107.0,
+    "high": 120.0,
+    "low": 91.0,
+    "analysts": 4,
+    "held": 0.35743
+  },
+  "2303": {
+    "rec": "buy",
+    "label": "買進",
+    "target": 129.33846,
+    "high": 258.0,
+    "low": 38.3,
+    "analysts": 26,
+    "held": 0.34876
+  },
+  "2812": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.10455
+  },
+  "2834": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.35484
+  },
+  "2851": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.01554
+  },
+  "2449": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 339.62857,
+    "high": 423.0,
+    "low": 300.0,
+    "analysts": 15,
+    "held": 0.36549
+  },
+  "2852": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.023640001
+  },
+  "2883": {
+    "rec": "none",
+    "label": "none",
+    "target": 35.5,
+    "high": 41.0,
+    "low": 30.0,
+    "analysts": 2,
+    "held": 0.30412
+  },
+  "2886": {
+    "rec": "none",
+    "label": "none",
+    "target": 42.31111,
+    "high": 49.0,
+    "low": 35.3,
+    "analysts": 9,
+    "held": 0.39762002
+  },
+  "2887": {
+    "rec": "none",
+    "label": "none",
+    "target": 28.19879,
+    "high": 34.65347,
+    "low": 21.39,
+    "analysts": 5,
+    "held": 0.27225
+  },
+  "2889": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.15095
+  },
+  "2892": {
+    "rec": "none",
+    "label": "none",
+    "target": 30.9,
+    "high": 32.0,
+    "low": 29.8,
+    "analysts": 2,
+    "held": 0.34195
+  },
+  "3036": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 314.85715,
+    "high": 365.0,
+    "low": 285.0,
+    "analysts": 7,
+    "held": 0.2163
+  },
+  "3211": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3289": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3455": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "6282": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.07707
+  },
+  "7530": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "8074": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3260": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "7856": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "3481": {
+    "rec": "hold",
+    "label": "持有/觀望",
+    "target": 48.26,
+    "high": 85.3,
+    "low": 26.0,
+    "analysts": 5,
+    "held": 0.218
+  },
+  "3443": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 5636.7646,
+    "high": 8000.0,
+    "low": 2500.0,
+    "analysts": 17,
+    "held": 0.33682
+  },
+  "3661": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 5676.5625,
+    "high": 6800.0,
+    "low": 3755.0027,
+    "analysts": 16,
+    "held": 0.40991002
+  },
+  "6664": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "6156": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "5289": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  },
+  "6515": {
+    "rec": "strong_buy",
+    "label": "強力買進",
+    "target": 11365.909,
+    "high": 14800.0,
+    "low": 9000.0,
+    "analysts": 11,
+    "held": 6.14372
+  },
+  "6598": {
+    "rec": "none",
+    "label": "none",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": 0.021879999
+  },
+  "8299": {
+    "rec": "",
+    "label": "",
+    "target": null,
+    "high": null,
+    "low": null,
+    "analysts": null,
+    "held": null
+  }
+}
