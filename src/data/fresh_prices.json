@@ -1,0 +1,641 @@
+{
+  "6669": {
+    "price": 6300.0,
+    "target": 8202.0,
+    "rec": "strong_buy",
+    "high": 6410.0,
+    "low": 6205.0,
+    "vol": 919494,
+    "name": "Wiwynn Corporation"
+  },
+  "3017": {
+    "price": 2855.0,
+    "target": 3833.1765,
+    "rec": "strong_buy",
+    "high": 2935.0,
+    "low": 2830.0,
+    "vol": 2264742,
+    "name": "Asia Vital Components Co., Ltd."
+  },
+  "7610": {
+    "price": 1710.0,
+    "target": null,
+    "rec": "none",
+    "high": 1820.0,
+    "low": 1660.0,
+    "vol": 900020,
+    "name": "LIANYOU METALS CO LTD"
+  },
+  "8069": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "4906": {
+    "price": 34.0,
+    "target": 27.0,
+    "rec": "none",
+    "high": 34.95,
+    "low": 33.8,
+    "vol": 2288048,
+    "name": "Gemtek Technology Co., Ltd."
+  },
+  "5009": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "5536": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3056": {
+    "price": 14.2,
+    "target": null,
+    "rec": "none",
+    "high": 14.45,
+    "low": 14.1,
+    "vol": 546411,
+    "name": "Fu Hua Innovation Co., Ltd."
+  },
+  "3037": {
+    "price": 1075.0,
+    "target": 1257.8948,
+    "rec": "strong_buy",
+    "high": 1120.0,
+    "low": 1065.0,
+    "vol": 10663028,
+    "name": "Unimicron Technology Corp."
+  },
+  "3712": {
+    "price": 20.7,
+    "target": null,
+    "rec": "none",
+    "high": 21.2,
+    "low": 20.55,
+    "vol": 1116467,
+    "name": "FIT Holding Co., Ltd."
+  },
+  "2344": {
+    "price": 177.0,
+    "target": 247.57143,
+    "rec": "buy",
+    "high": 184.5,
+    "low": 175.5,
+    "vol": 98981298,
+    "name": "Winbond Electronics Corporation"
+  },
+  "4979": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "6147": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "6121": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "8027": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3231": {
+    "price": 175.5,
+    "target": 266.52942,
+    "rec": "strong_buy",
+    "high": 177.5,
+    "low": 173.5,
+    "vol": 20176755,
+    "name": "Wistron Corporation"
+  },
+  "6676": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "1717": {
+    "price": 71.3,
+    "target": 80.0,
+    "rec": "buy",
+    "high": 72.7,
+    "low": 70.6,
+    "vol": 6453984,
+    "name": "Eternal Materials Co., Ltd."
+  },
+  "6405": {
+    "price": 38.15,
+    "target": null,
+    "rec": "none",
+    "high": 39.65,
+    "low": 37.8,
+    "vol": 362689,
+    "name": "Onano Industrial Corp."
+  },
+  "1815": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "1303": {
+    "price": 180.0,
+    "target": 185.7143,
+    "rec": "buy",
+    "high": 190.0,
+    "low": 179.0,
+    "vol": 74233317,
+    "name": "Nan Ya Plastics Corporation"
+  },
+  "3062": {
+    "price": 20.55,
+    "target": null,
+    "rec": "none",
+    "high": 21.25,
+    "low": 20.55,
+    "vol": 1435127,
+    "name": "CyberTAN Technology Inc."
+  },
+  "2317": {
+    "price": 243.5,
+    "target": 347.45,
+    "rec": "strong_buy",
+    "high": 246.5,
+    "low": 243.5,
+    "vol": 23043382,
+    "name": "Hon Hai Precision Industry Co., Ltd."
+  },
+  "3031": {
+    "price": 23.65,
+    "target": null,
+    "rec": "none",
+    "high": 24.6,
+    "low": 23.5,
+    "vol": 1601136,
+    "name": "Bright LED Electronics Corp."
+  },
+  "2356": {
+    "price": 66.1,
+    "target": 66.5,
+    "rec": "hold",
+    "high": 67.3,
+    "low": 65.5,
+    "vol": 12796326,
+    "name": "Inventec Corporation"
+  },
+  "1712": {
+    "price": 39.8,
+    "target": null,
+    "rec": "none",
+    "high": 39.9,
+    "low": 39.45,
+    "vol": 725687,
+    "name": "Sinon Corporation"
+  },
+  "1229": {
+    "price": 41.9,
+    "target": null,
+    "rec": "none",
+    "high": 42.5,
+    "low": 41.75,
+    "vol": 1445640,
+    "name": "Lien Hwa Industrial Holdings Corporation"
+  },
+  "1904": {
+    "price": 25.75,
+    "target": null,
+    "rec": "none",
+    "high": 26.45,
+    "low": 25.7,
+    "vol": 3233145,
+    "name": "Cheng Loong Corporation"
+  },
+  "2002": {
+    "price": 19.2,
+    "target": 20.3375,
+    "rec": "buy",
+    "high": 19.7,
+    "low": 19.2,
+    "vol": 24057570,
+    "name": "China Steel Corporation"
+  },
+  "1101": {
+    "price": 24.7,
+    "target": 27.25,
+    "rec": "buy",
+    "high": 25.7,
+    "low": 24.65,
+    "vol": 46606895,
+    "name": "TCC Group Holdings Co., Ltd."
+  },
+  "2616": {
+    "price": 13.5,
+    "target": null,
+    "rec": "none",
+    "high": 13.55,
+    "low": 13.4,
+    "vol": 61299,
+    "name": "Shan-Loong Transportation Co.,Ltd"
+  },
+  "2618": {
+    "price": 42.65,
+    "target": 44.98571,
+    "rec": "buy",
+    "high": 43.6,
+    "low": 42.55,
+    "vol": 20193615,
+    "name": "EVA Airways Corp."
+  },
+  "2880": {
+    "price": 39.25,
+    "target": 30.0,
+    "rec": "none",
+    "high": 40.25,
+    "low": 39.15,
+    "vol": 12922783,
+    "name": "Hua Nan Financial Holdings Co., Ltd."
+  },
+  "2891": {
+    "price": 63.6,
+    "target": 69.12727,
+    "rec": "strong_buy",
+    "high": 65.6,
+    "low": 63.6,
+    "vol": 17523521,
+    "name": "CTBC Financial Holding Co., Ltd."
+  },
+  "2881": {
+    "price": 132.0,
+    "target": 117.935,
+    "rec": "buy",
+    "high": 135.0,
+    "low": 131.0,
+    "vol": 13536045,
+    "name": "Fubon Financial Holding Co., Ltd."
+  },
+  "2884": {
+    "price": 38.15,
+    "target": 38.2,
+    "rec": "buy",
+    "high": 38.25,
+    "low": 37.75,
+    "vol": 25293669,
+    "name": "E.SUN Financial Holding Company, Ltd."
+  },
+  "2890": {
+    "price": 38.95,
+    "target": 40.46405,
+    "rec": "buy",
+    "high": 39.8,
+    "low": 38.95,
+    "vol": 17123983,
+    "name": "SinoPac Financial Holdings Company Limited"
+  },
+  "3048": {
+    "price": 55.7,
+    "target": null,
+    "rec": "none",
+    "high": 57.0,
+    "low": 55.7,
+    "vol": 1024709,
+    "name": "EDOM Technology Co., Ltd."
+  },
+  "3162": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3088": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3711": {
+    "price": 592.0,
+    "target": 692.7368,
+    "rec": "strong_buy",
+    "high": 601.0,
+    "low": 585.0,
+    "vol": 7679169,
+    "name": "ASE Technology Holding Co., Ltd."
+  },
+  "4904": {
+    "price": 101.5,
+    "target": 107.0,
+    "rec": "buy",
+    "high": 102.0,
+    "low": 100.5,
+    "vol": 4375173,
+    "name": "Far EasTone Telecommunications Co., Ltd."
+  },
+  "2303": {
+    "price": 123.5,
+    "target": 129.33846,
+    "rec": "buy",
+    "high": 128.0,
+    "low": 117.5,
+    "vol": 195911774,
+    "name": "United Microelectronics Corporation"
+  },
+  "2812": {
+    "price": 19.05,
+    "target": null,
+    "rec": "none",
+    "high": 19.1,
+    "low": 18.8,
+    "vol": 11264938,
+    "name": "Taichung Commercial Bank Co., Ltd."
+  },
+  "2834": {
+    "price": 16.35,
+    "target": null,
+    "rec": "none",
+    "high": 16.65,
+    "low": 16.35,
+    "vol": 27001647,
+    "name": "Taiwan Business Bank, Ltd."
+  },
+  "2851": {
+    "price": 42.85,
+    "target": null,
+    "rec": "none",
+    "high": 47.3,
+    "low": 42.55,
+    "vol": 10427565,
+    "name": "Central Reinsurance Corporation"
+  },
+  "2449": {
+    "price": 239.0,
+    "target": 339.62857,
+    "rec": "strong_buy",
+    "high": 243.0,
+    "low": 231.0,
+    "vol": 13234790,
+    "name": "King Yuan Electronics Co., Ltd."
+  },
+  "2852": {
+    "price": 29.2,
+    "target": null,
+    "rec": "none",
+    "high": 29.4,
+    "low": 28.95,
+    "vol": 757448,
+    "name": "The First Insurance Co., Ltd."
+  },
+  "2883": {
+    "price": 31.0,
+    "target": 35.5,
+    "rec": "none",
+    "high": 31.95,
+    "low": 30.7,
+    "vol": 36776827,
+    "name": "KGI Financial Holding Co., Ltd."
+  },
+  "2886": {
+    "price": 46.85,
+    "target": 42.31111,
+    "rec": "none",
+    "high": 47.15,
+    "low": 46.4,
+    "vol": 20177702,
+    "name": "Mega Financial Holding Co., Ltd."
+  },
+  "2887": {
+    "price": 36.5,
+    "target": 28.19879,
+    "rec": "none",
+    "high": 37.55,
+    "low": 36.5,
+    "vol": 30914360,
+    "name": "TS Financial Holding Co., Ltd."
+  },
+  "2889": {
+    "price": 15.65,
+    "target": null,
+    "rec": "none",
+    "high": 15.8,
+    "low": 15.6,
+    "vol": 3982401,
+    "name": "IBF Financial Holdings Co., Ltd."
+  },
+  "2892": {
+    "price": 33.55,
+    "target": 30.9,
+    "rec": "none",
+    "high": 33.8,
+    "low": 33.25,
+    "vol": 23886471,
+    "name": "First Financial Holding Co., Ltd."
+  },
+  "3036": {
+    "price": 200.5,
+    "target": 314.85715,
+    "rec": "strong_buy",
+    "high": 207.0,
+    "low": 200.5,
+    "vol": 6914060,
+    "name": "WT Microelectronics Co., Ltd."
+  },
+  "3211": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3289": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3455": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "6282": {
+    "price": 44.35,
+    "target": null,
+    "rec": "none",
+    "high": 45.6,
+    "low": 44.3,
+    "vol": 5463744,
+    "name": "AcBel Polytech Inc."
+  },
+  "7530": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "8074": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3260": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "7856": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "3481": {
+    "price": 45.45,
+    "target": 48.26,
+    "rec": "hold",
+    "high": 46.95,
+    "low": 45.45,
+    "vol": 122335620,
+    "name": "Innolux Corporation"
+  },
+  "3443": {
+    "price": 5365.0,
+    "target": 5636.7646,
+    "rec": "strong_buy",
+    "high": 5690.0,
+    "low": 5350.0,
+    "vol": 1649636,
+    "name": "Global Unichip Corp."
+  },
+  "3661": {
+    "price": 3735.0,
+    "target": 5676.5625,
+    "rec": "strong_buy",
+    "high": 3795.0,
+    "low": 3680.0,
+    "vol": 1130987,
+    "name": "Alchip Technologies, Limited"
+  },
+  "6664": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "6156": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "5289": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  },
+  "6515": {
+    "price": 6145.0,
+    "target": 11365.909,
+    "rec": "strong_buy",
+    "high": 6550.0,
+    "low": 6145.0,
+    "vol": 173256,
+    "name": "WinWay Technology Co., Ltd."
+  },
+  "6598": {
+    "price": 28.0,
+    "target": null,
+    "rec": "none",
+    "high": 28.55,
+    "low": 27.7,
+    "vol": 211272,
+    "name": "Applied BioCode Corporation"
+  },
+  "8299": {
+    "price": null,
+    "target": null,
+    "rec": "",
+    "high": null,
+    "low": null,
+    "vol": null,
+    "name": ""
+  }
+}
