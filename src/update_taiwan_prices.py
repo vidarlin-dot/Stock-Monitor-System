@@ -4,6 +4,7 @@
 
 Runs BEFORE daily_taiwan_report.py to ensure sheet data is current.
 Uses GCP_SERVICE_ACCOUNT_JSON env var (set from GitHub secrets).
+Uses batch writes to avoid Google Sheets API quota limits.
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
@@ -113,6 +114,19 @@ def build_j_text(rec, analysts, target):
     return text
 
 
+def batch_update_column(ws, col_1idx, start_row, end_row, values):
+    """Batch update a single column range. values[i] corresponds to row start_row+i."""
+    if not values:
+        return 0
+    # Build 2D list: [[v1], [v2], ...]
+    cell_values = [[v] for v in values if v is not None]
+    if not cell_values:
+        return 0
+    range_str = f"{gspread.utils.cellname(col_1idx, start_row)}:{gspread.utils.cellname(col_1idx, start_row + len(cell_values) - 1)}"
+    ws.update(range_str, cell_values)
+    return len(cell_values)
+
+
 def update_sheet(gsheet_ws, results):
     rows = gsheet_ws.get_all_values()
     header = rows[0]
@@ -127,8 +141,11 @@ def update_sheet(gsheet_ws, results):
 
     logger.info('Col map: %s', col_map)
 
-    updates = []
+    # Build per-column update lists
+    buy_updates = []   # (row_idx, new_value)
+    sell_updates = []
     j_updates = []
+    k_updates = []
 
     for row_idx, row in enumerate(rows[1:], start=2):
         if not row or not row[0]:
@@ -153,30 +170,45 @@ def update_sheet(gsheet_ws, results):
         if buy_r:
             cur_buy = row[col_map.get('buy', 4)] if 'buy' in col_map else ''
             cur_sell = row[col_map.get('sell', 5)] if 'sell' in col_map else ''
-            if cur_buy != buy_r or cur_sell != sell_r:
-                updates.append((row_idx, col_map.get('buy', 4) + 1, buy_r))
-                updates.append((row_idx, col_map.get('sell', 5) + 1, sell_r))
-                logger.info('  BUY/SELL Row %d (%s): %s / %s', row_idx, ticker, buy_r, sell_r)
+            if cur_buy != buy_r:
+                buy_updates.append((row_idx, buy_r))
+                logger.info('  BUY Row %d (%s): %s', row_idx, ticker, buy_r)
+            if cur_sell != sell_r:
+                sell_updates.append((row_idx, sell_r))
+                logger.info('  SELL Row %d (%s): %s', row_idx, ticker, sell_r)
 
         if rec or target:
             j_text = build_j_text(rec, analysts, target)
             k_text = str(int(target)) if target else ''
             cur_j = row[col_map.get('j', 9)] if 'j' in col_map else ''
             cur_k = row[col_map.get('k', 10)] if 'k' in col_map else ''
-            if cur_j != j_text or cur_k != k_text:
-                j_updates.append((row_idx, col_map.get('j', 9) + 1, j_text))
-                j_updates.append((row_idx, col_map.get('k', 10) + 1, k_text))
-                logger.info('  J/K Row %d (%s): J=%s K=%s', row_idx, ticker, j_text, k_text)
+            if cur_j != j_text:
+                j_updates.append((row_idx, j_text))
+                logger.info('  J Row %d (%s): %s', row_idx, ticker, j_text)
+            if cur_k != k_text:
+                k_updates.append((row_idx, k_text))
+                logger.info('  K Row %d (%s): %s', row_idx, ticker, k_text)
 
-    for row_idx, col, val in updates:
-        gsheet_ws.update_cell(row_idx, col, val)
-        time.sleep(0.15)
-    logger.info('Updated %d buy/sell cells', len(updates) // 2)
+    # Batch write each column (4 API calls total instead of ~280)
+    total = 0
+    if buy_updates and 'buy' in col_map:
+        n = batch_update_column(gsheet_ws, col_map['buy'] + 1, 2, len(rows),
+                                [v for _, v in buy_updates])
+        total += n
+    if sell_updates and 'sell' in col_map:
+        n = batch_update_column(gsheet_ws, col_map['sell'] + 1, 2, len(rows),
+                                [v for _, v in sell_updates])
+        total += n
+    if j_updates and 'j' in col_map:
+        n = batch_update_column(gsheet_ws, col_map['j'] + 1, 2, len(rows),
+                                [v for _, v in j_updates])
+        total += n
+    if k_updates and 'k' in col_map:
+        n = batch_update_column(gsheet_ws, col_map['k'] + 1, 2, len(rows),
+                                [v for _, v in k_updates])
+        total += n
 
-    for row_idx, col, val in j_updates:
-        gsheet_ws.update_cell(row_idx, col, val)
-        time.sleep(0.15)
-    logger.info('Updated %d J/K cells', len(j_updates) // 2)
+    logger.info('Batch updated %d cells in 4 API calls', total)
 
 
 def main():
