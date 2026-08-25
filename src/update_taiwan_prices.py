@@ -13,6 +13,7 @@ import os, json, re, time, logging
 import yfinance as yf
 import gspread
 from google.oauth2.service_account import Credentials
+from gspread.utils import rowcol_to_a1
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ def batch_update_column(ws, col_1idx, start_row, end_row, values):
     cell_values = [[v] for v in values if v is not None]
     if not cell_values:
         return 0
-    range_str = f"{gspread.utils.cellname(col_1idx, start_row)}:{gspread.utils.cellname(col_1idx, start_row + len(cell_values) - 1)}"
+    range_str = f"{rowcol_to_a1(start_row, col_1idx)}:{rowcol_to_a1(start_row + len(cell_values) - 1, col_1idx)}"
     ws.update(range_str, cell_values)
     return len(cell_values)
 
