@@ -160,7 +160,7 @@ def _process_holding(
     sell_zone_raw = str(h.get("sellzone", h.get("\u8ce3\u51fa\u5340\u9593", "")))
     catalyst_raw = str(h.get("catalystdate", h.get("\u50ac\u5316\u5287\u65e5\u671f", "")))
     notes = str(h.get("notes", h.get("\u5099\u8a3b", ""))).strip()
-    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", h.get("\u5206\u6790\u5e08\u5070\u8b70", "\u5206\u6790\u5e08\u8a55\u8b70")))).strip()
+    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", h.get("\u5206\u6790\u5e08\u5070\u8b70", "\u5206\u6790\u5e08\u8a55\u7b49")))).strip()
 
     common_notes = ["\u898b\u5099\u8a3b", "see notes", "(\u898b\u5099\u8a3b)", "N/A", "", "\u2014"]
     if notes in common_notes:
