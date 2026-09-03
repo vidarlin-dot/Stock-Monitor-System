@@ -1,4 +1,4 @@
-"""Daily monitoring main entry point for Stock Monitor System."""
+﻿"""Daily monitoring main entry point for Stock Monitor System."""
 
 from __future__ import annotations
 
@@ -74,9 +74,8 @@ def build_daily_report(
 
         buy_triggered = bool(buy_zones and cp <= buy_zones[0] * 1.03)
         sell_triggered = bool(sell_zones and cp >= sell_zones[0] * 0.97)
-        stop_loss_triggered = pnl_pct < -10.0
 
-        if buy_triggered or sell_triggered or stop_loss_triggered:
+        if buy_triggered or sell_triggered :
             has_urgent = True
 
         catalyst_raw = stock_entry.get("catalyst_raw", "")
@@ -116,8 +115,6 @@ def build_daily_report(
                 triggers.append(f"{chr(0x2705)} \u8cb7\u9032\u8a0a\u865f\uff1a\u5df2\u843d\u5165\u8cb7\u9032\u5340\u9593")
             if sell_triggered:
                 triggers.append(f"{chr(0x1F534)} \u8ce3\u51fa\u8a0a\u865f\uff1a\u5df2\u9ad8\u65bc\u8ce3\u51fa\u5340\u9593")
-            if stop_loss_triggered:
-                triggers.append(f"{chr(0x1F6A8)} \u505c\u640d\u8a0a\u865f\uff1a\u640d\u5931\u8d85\u904e 10%")
             stock_entry["trigger_reasons"] = triggers
             urgent_stocks.append(stock_entry)
         elif has_major_event:
@@ -245,8 +242,7 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
 
     lines.append(f"{chr(0x1F4C9)} {ticker} ({company})")
     lines.append(
-        f"   {chr(0x1F4B0)} \u6301\u80a1\uff1a{shares_count}\u80a1 | "
-        f"\u5747\u50f9\uff1a${ac:.2f} | "
+        f"   {chr(0x1F4B0)} \u5747\u50f9\uff1a${ac:.2f} | "
         f"\u640d\u76ca\uff1a${total_pnl:+,.2f} ({pnl_pct:+.1f}%)"
     )
     lines.append(f"   {chr(0x1F4C2)} \u7576\u524d\u50f9\uff1a${cp:.2f}")
@@ -258,14 +254,19 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     buy_zones = s.get("buy_zones", [])
     sell_zones = s.get("sell_zones", [])
 
+    # Buy zone - always show
     if buy_zones:
-        zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
-        lines.append(f"   {chr(0x21E3)} \u8cb7\u9032\u5340\u9593\uff1a{zone_str}")
+        buy_zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
+    else:
+        buy_zone_str = "N/A"
+    lines.append(f"   {chr(0x2B06)} \u8cb7\u9032\u5340\u9593\uff1a{buy_zone_str}")
 
+    # Sell zone - always show
     if sell_zones:
-        zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
-        lines.append(f"   {chr(0x21E0)} \u8ce3\u51fa\u5340\u9593\uff1a{zone_str}")
-
+        sell_zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
+    else:
+        sell_zone_str = "N/A"
+    lines.append(f"   {chr(0x2B07)} \u8ce3\u51fa\u5340\u9593\uff1a{sell_zone_str}")
     evt_info = s.get("major_events_info", "")
     if evt_info:
         for eline in evt_info.split(chr(10)):
@@ -278,9 +279,6 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
         lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u5070\u8b70\uff1a{analyst_rec}")
     if target_price > 0:
         lines.append(f"   {chr(0x1F3AF)} \u76ee\u6a19\u50f9\uff1a{target_price:.2f} \u7f8e\u5143")
-    analyst_comment = s.get("analyst_comment", "")
-    if analyst_comment and analyst_comment not in ["", "N/A", "see notes", "\u898b\u5099\u8a3b"]:
-        lines.append(f"   {chr(0x1F4AC)} \u5099\u8a3b\uff1a{analyst_comment}")
 
     fin_data = s.get("fin_data")
     if fin_data and fin_data.get("summary"):
@@ -297,9 +295,6 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     sent_label = sdata.get("sentiment_label", "\u8a0a\u606f\u4e0d\u8db3")
     lines.append(f"   {chr(0x1F4AC)} \u6563\u6236\u60c5\u7dd2\uff1a{sent_label} (\u63d0\u53ca\u6b21\u6578\uff1a{mentions})")
 
-    notes = s.get("notes", "")
-    if notes:
-        lines.append(f"   {chr(0x1F4DD)} \u5099\u8a3b\uff1a{notes}")
 
     lines.append("")
 
@@ -338,7 +333,7 @@ def _get_company_name(ticker: str) -> str:
         "BEAM": "Beam Therapeutics",
         "NVDA": "NVIDIA",
         "GOOG": "Alphabet (Google)",
-        "TSM": "TSMC",
+        "TSM": "台積電",
         "AMD": "Advanced Micro Devices",
         "IONQ": "IonQ Inc.",
         "GLW": "Corning",
@@ -397,7 +392,7 @@ def main() -> None:
             info = stock.info
             eps_avg = cal.get("Earnings Average") if cal else None
             if eps_avg is not None:
-                eps_est = f""
+                eps_est = "N/A"
             sentiment = "訊息不足 (中性)"
             news_items = stock.news[:5] if hasattr(stock, "news") and stock.news else []
             if news_items:
