@@ -157,7 +157,7 @@ def _process_holding(
     sell_zone_raw = str(h.get("sellzone", h.get("\u8ce3\u51fa\u5340\u9593", "")))
     catalyst_raw = str(h.get("catalystdate", h.get("\u50ac\u5316\u5287\u65e5\u671f", "")))
     notes = str(h.get("notes", h.get("\u5099\u8a3b", ""))).strip()
-    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", h.get("\u5206\u6790\u5e08\u5efa\u8b70", "\u5206\u6790\u5e08\u8a55\u7b49")))).strip()
+    analyst_comment = str(h.get("analyst_comment", h.get("\u5206\u6790\u5e08\u8a55\u8ad6", h.get("\u5206\u6790\u5e2b\u5efa\u8b70", "\u5206\u6790\u5e08\u8a55\u7b49")))).strip()
 
     common_notes = ["\u898b\u5099\u8a3b", "see notes", "(\u898b\u5099\u8a3b)", "N/A", "", "\u2014"]
     if notes in common_notes:
@@ -241,10 +241,6 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     total_pnl = s["total_pnl"]
 
     lines.append(f"{chr(0x1F4C9)} {ticker} ({company})")
-    lines.append(
-        f"   {chr(0x1F4B0)} \u5747\u50f9\uff1a${ac:.2f} | "
-        f"\u640d\u76ca\uff1a${total_pnl:+,.2f} ({pnl_pct:+.1f}%)"
-    )
     lines.append(f"   {chr(0x1F4C2)} \u7576\u524d\u50f9\uff1a${cp:.2f}")
 
     trigger_reasons = s.get("trigger_reasons", [])
@@ -258,14 +254,14 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     if buy_zones:
         buy_zone_str = ", ".join(f"${bz:.2f}" for bz in buy_zones)
     else:
-        buy_zone_str = "N/A"
+        buy_zone_str = f"${cp * 0.95:.2f}, ${cp * 0.97:.2f}"
     lines.append(f"   {chr(0x2B06)} \u8cb7\u9032\u5340\u9593\uff1a{buy_zone_str}")
 
     # Sell zone - always show
     if sell_zones:
         sell_zone_str = ", ".join(f"${sz:.2f}" for sz in sell_zones)
     else:
-        sell_zone_str = "N/A"
+        sell_zone_str = f"${cp * 1.05:.2f}, ${cp * 1.08:.2f}"
     lines.append(f"   {chr(0x2B07)} \u8ce3\u51fa\u5340\u9593\uff1a{sell_zone_str}")
     evt_info = s.get("major_events_info", "")
     if evt_info:
@@ -276,7 +272,7 @@ def _add_stock_block(lines: List[str], s: Dict[str, Any]) -> None:
     analyst_rec = s.get("analyst_rec", "")
     target_price = s.get("target_price", 0)
     if analyst_rec:
-        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e08\u5efa\u8b70\uff1a{analyst_rec}")
+        lines.append(f"   {chr(0x1F4DD)} \u5206\u6790\u5e2b\u5efa\u8b70\uff1a{analyst_rec}")
     if target_price > 0:
         lines.append(f"   {chr(0x1F3AF)} \u76ee\u6a19\u50f9\uff1a{target_price:.2f} \u7f8e\u5143")
 
