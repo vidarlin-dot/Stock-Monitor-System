@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  line-bot-webhook:
+    build: .
+    container_name: taiwan-stock-line-bot
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - LINE_CHANNEL_SECRET=${LINE_CHANNEL_SECRET}
+      - LINE_CHANNEL_ACCESS_TOKEN=${LINE_CHANNEL_ACCESS_TOKEN}
+      - GCP_SERVICE_ACCOUNT_JSON=${GCP_SERVICE_ACCOUNT_JSON}
+      - SHEET_NAME=${SHEET_NAME:-Portfolio}
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

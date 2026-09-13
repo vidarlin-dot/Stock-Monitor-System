@@ -67,7 +67,7 @@ def load_cnyes_ratings():
         '3017': {'date': '20260810', 'ticker': '3017', 'name': '奇鋐', 'broker': 'Factset', 'new_rating': '', 'new_target': '3890', 'current_price': ''},
         '3661': {'date': '20260805', 'ticker': '3661', 'name': '世芯-KY', 'broker': 'Factset', 'new_rating': '', 'new_target': '4200', 'current_price': ''},
         '6515': {'date': '20260801', 'ticker': '6515', 'name': '穎崴', 'broker': 'Factset', 'new_rating': '', 'new_target': '14800', 'current_price': ''},
-        '5289': {'date': '20260715', 'ticker': '5289', 'name': '宜鼎', 'broker': 'Factset', 'new_rating': '', 'new_target': '360', 'current_price': ''},
+        '5289': {'date': '20260912', 'ticker': '5289', 'name': '宜鼎', 'broker': 'Factset', 'new_rating': '', 'new_target': '1850', 'current_price': ''},
         '2317': {'date': '20260810', 'ticker': '2317', 'name': '鴻海', 'broker': 'Factset', 'new_rating': '', 'new_target': '435', 'current_price': ''},
         '3037': {'date': '20260713', 'ticker': '3037', 'name': '欣興', 'broker': 'Factset', 'new_rating': '', 'new_target': '975', 'current_price': ''},
         '3443': {'date': '20260708', 'ticker': '3443', 'name': '創意', 'broker': 'Factset', 'new_rating': '', 'new_target': '5535', 'current_price': ''},

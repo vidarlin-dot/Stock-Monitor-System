@@ -7,3 +7,5 @@ python-dateutil>=2.9.0
 pytz>=2025.2
 
 playwright>=1.40.0
+
+flask>=3.0.0

@@ -14,7 +14,9 @@ FocusScore pipeline:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import sys
 from datetime import datetime, timedelta
@@ -341,21 +343,80 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         qualified = auto_entries + existing
 
     today_str = datetime.now(TW_TZ).strftime("%Y%m%d")
-    today_alerts = []
+    # Load previous day's QFII targets for change detection
+    prev_targets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "prev_qfii_targets.json")
+    prev_targets: Dict[str, float] = {}
+    try:
+        with open(prev_targets_path, encoding="utf-8") as pf:
+            prev_targets = json.load(pf)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    target_change_alerts: List[str] = []
+    today_target_alerts: List[str] = []
     for ticker, qfii in qfii_data.items():
+        target = qfii.get("qfii_target", 0)
+        if target <= 0:
+            continue
+        name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
+        # Check if this is a today's rating update
         if ticker in cnyes_ratings:
             rating = cnyes_ratings[ticker]
             rating_date = rating.get("date", "")
             if rating_date == today_str:
-                name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
-                target = qfii.get("qfii_target", 0)
-                if target > 0:
-                    today_alerts.append(f"{name} ({ticker}) - 外資調降目標價至 {_fmt_price(target)} 元")
-    if today_alerts:
-        lines.append("⚠️ 今日外資調整目標價重點股")
-        for alert in today_alerts:
+                today_target_alerts.append(f"{name} ({ticker}) - 外資調整目標價至 {_fmt_price(target)} 元")
+        # Check if target changed vs previous snapshot
+        prev_tgt = prev_targets.get(ticker, 0)
+        if prev_tgt > 0 and abs(target - prev_tgt) > 0.01:
+            direction = "上调" if target > prev_tgt else "下调"
+            diff = target - prev_tgt
+            target_change_alerts.append(
+                f"{name} ({ticker}) - 外資{direction}目標價 {_fmt_price(prev_tgt)} -> {_fmt_price(target)} (差 {_fmt_price(diff)})"
+            )
+
+    # Save current targets for tomorrow's comparison
+    current_targets: Dict[str, float] = {}
+    for ticker, qfii in qfii_data.items():
+        tgt = qfii.get("qfii_target", 0)
+        if tgt > 0:
+            current_targets[ticker] = tgt
+    try:
+        os.makedirs(os.path.dirname(prev_targets_path), exist_ok=True)
+        with open(prev_targets_path, "w", encoding="utf-8") as pf:
+            json.dump(current_targets, pf, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning("Failed to save prev targets: %s", e)
+
+    if today_target_alerts:
+        lines.append("今日外資調整目標價重點股")
+        for alert in today_target_alerts:
             lines.append(alert)
         lines.append("")
+    elif target_change_alerts:
+        lines.append("外資目標價異動股")
+        for alert in target_change_alerts[:5]:
+            lines.append(alert)
+        lines.append("")
+
+    # Auto-promote stocks with target price changes (bypass focus score threshold)
+    target_change_tickers = set()
+    for ticker, qfii in qfii_data.items():
+        target = qfii.get("qfii_target", 0)
+        prev_tgt = prev_targets.get(ticker, 0)
+        if prev_tgt > 0 and abs(target - prev_tgt) > 0.01 and ticker in all_scores:
+            target_change_tickers.add(ticker)
+    if target_change_tickers:
+        existing = [(t, s) for t, s in qualified if t not in target_change_tickers]
+        change_entries = [(t, all_scores[t]) for t in target_change_tickers]
+        qualified = change_entries + existing
+        # Also add to stock_info if missing
+        for ticker in target_change_tickers:
+            if ticker not in stock_info:
+                for h in watchlist:
+                    t = _extract_ticker_code(h.get("ticker", h.get("代碼", "")))[0]
+                    if t == ticker:
+                        stock_info[ticker] = {"data": stocks_data.get(ticker), "h": h, "score": all_scores[ticker]}
+                        break
 
     special_focus = [(t, s) for t, s in qualified if t not in auto_focus and s.get("focus_score", 0) >= 70]
     if special_focus:

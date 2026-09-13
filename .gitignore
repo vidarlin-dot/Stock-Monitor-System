@@ -1,4 +1,4 @@
-﻿.env
+.env
 __pycache__/
 *.pyc
 venv/
@@ -6,3 +6,8 @@ venv/
 src/.taiwan_b64
 src/cache/
 cache/
+*.service
+docker-compose.yml
+Dockerfile
+.env.example
+

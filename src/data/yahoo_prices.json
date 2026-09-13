@@ -1,0 +1,86 @@
+{
+  "6669.TW": {
+    "price": 6300.0,
+    "target": 8202.0,
+    "rec": "strong_buy",
+    "name": "Wiwynn Corporation"
+  },
+  "3017.TW": {
+    "price": 2855.0,
+    "target": 3833.1765,
+    "rec": "strong_buy",
+    "name": "Asia Vital Components Co., Ltd."
+  },
+  "3443.TW": {
+    "price": 5365.0,
+    "target": 5636.7646,
+    "rec": "strong_buy",
+    "name": "Global Unichip Corp."
+  },
+  "3661.TW": {
+    "price": 3735.0,
+    "target": 5676.5625,
+    "rec": "strong_buy",
+    "name": "Alchip Technologies, Limited"
+  },
+  "5289.TW": {
+    "price": null,
+    "target": null,
+    "rec": null,
+    "name": "5289.TW"
+  },
+  "6515.TW": {
+    "price": 6145.0,
+    "target": 11365.909,
+    "rec": "strong_buy",
+    "name": "WinWay Technology Co., Ltd."
+  },
+  "8299.TW": {
+    "price": null,
+    "target": null,
+    "rec": null,
+    "name": "8299.TW"
+  },
+  "7610.TW": {
+    "price": 1710.0,
+    "target": null,
+    "rec": "none",
+    "name": "LIANYOU METALS CO LTD"
+  },
+  "2317.TW": {
+    "price": 243.5,
+    "target": 347.45,
+    "rec": "strong_buy",
+    "name": "Hon Hai Precision Industry Co., Ltd."
+  },
+  "3037.TW": {
+    "price": 1075.0,
+    "target": 1257.8948,
+    "rec": "strong_buy",
+    "name": "Unimicron Technology Corp."
+  },
+  "2344.TW": {
+    "price": 177.0,
+    "target": 247.57143,
+    "rec": "buy",
+    "name": "Winbond Electronics Corporation"
+  },
+  "6415.TW": {
+    "price": 450.0,
+    "target": 581.5007,
+    "rec": "buy",
+    "name": "Silergy Corp."
+  },
+  "3036.TW": {
+    "price": 200.5,
+    "target": 314.85715,
+    "rec": "strong_buy",
+    "name": "WT Microelectronics Co., Ltd."
+  },
+  "3481.TW": {
+    "price": 45.45,
+    "target": 48.26,
+    "rec": "hold",
+    "name": "Innolux Corporation"
+  }
+}
