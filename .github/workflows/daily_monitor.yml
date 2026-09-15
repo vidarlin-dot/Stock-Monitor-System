@@ -1,4 +1,4 @@
-﻿name: Daily Stock Monitor
+name: Daily Stock Monitor
 
 on:
   schedule:
@@ -24,16 +24,16 @@ jobs:
 
       - name: Update Analyst Targets (Daily)
         env:
-          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
-          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_NAME: ${{secrets.SHEET_NAME }}
         run: |
           python src/update_analyst_targets.py
 
       - name: Run Daily Monitor
         env:
-          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
-          SHEET_NAME: ${{ secrets.SHEET_NAME }}
-          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_NAME: ${{secrets.SHEET_NAME }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: U578787012e98bcbdaee9cc91bc385ff7
         run: |
           python src/main.py
