@@ -92,7 +92,7 @@ def _cmd_help(user_id: str, notifier: Any) -> None:
     """Send help message to user."""
     msg = (
         "📋 台股 AI 摘要 Bot 指令\n\n"
-        "• /taiwan — 立即重新發送台股每日焦點報告\n"
+        "• /taiwan — 發送台股每日焦點報告\n• /us     — 發送美股每日焦點報告\n• /all    — 發送台股+美股報告\n"
         "• /status — 查看上次報告時間\n"
         "• /help   — 顯示此說明\n\n"
         "每日早上 10:00（台北時間）自動發送，也可手動觸發。"
@@ -157,20 +157,41 @@ def _run_taiwan_report_async(notifier: Any) -> None:
 
 def _cmd_taiwan(user_id: str, notifier: Any) -> None:
     """Start report generation in background and reply immediately."""
-    # Acknowledge immediately so LINE doesn't timeout
     ack = "⏳ 正在生成台股每日報告，請稍候..."
     notifier.send_push_message(ack)
-
-    # Run report in background; complete report is sent via notifier
-    # inside _run_taiwan_report_async (which calls the existing line_notifier)
-    # We also send a completion ack here through the notifier passed in.
-    t = threading.Thread(
-        target=_run_taiwan_report_impl,
-        args=(notifier,),
-        daemon=True,
-    )
-    t.start()
+    threading.Thread(target=_run_taiwan_report_impl, args=(notifier,), daemon=True).start()
     logger.info("Taiwan report thread started for user %s", user_id)
+
+def _run_us_report_impl(notifier: Any) -> None:
+    """Generate the US focus report in background."""
+    logger.info("Background: generating US report from webhook")
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from main import build_daily_report
+        from config import GoogleSheetsManager
+        manager = GoogleSheetsManager()
+        data = manager.load_config()
+        holdings = data["holdings"]
+        report_text, qualified, stocks_data, stock_info = build_daily_report(holdings)
+        _send_report_chunks(notifier, report_text)
+        logger.info("US report sent successfully")
+    except Exception as exc:
+        logger.exception("US report failed: %s", exc)
+        notifier.send_push_message(f"⚠️ 美股報告生成時發生錯誤：{exc}")
+
+def _cmd_us(user_id: str, notifier: Any) -> None:
+    """Start US report generation in background."""
+    notifier.send_push_message("⏳ 正在生成美股焦點報告，請稍候...")
+    threading.Thread(target=_run_us_report_impl, args=(notifier,), daemon=True).start()
+    logger.info("US report thread started for user %s", user_id)
+
+def _cmd_all(user_id: str, notifier: Any) -> None:
+    """Send both Taiwan and US reports sequentially."""
+    notifier.send_push_message("⏳ 正在生成台股+美股報告，請稍候...")
+    threading.Thread(target=_run_taiwan_report_impl, args=(notifier,), daemon=True).start()
+    threading.Thread(target=_run_us_report_impl, args=(notifier,), daemon=True).start()
+    logger.info("Both reports thread started for user %s", user_id)
 
 
 def _run_taiwan_report_impl(notifier: Any) -> None:
@@ -338,6 +359,10 @@ def webhook():
 
                 if text == "/taiwan":
                     _cmd_taiwan(user_id, notifier)
+                elif text == "/us":
+                    _cmd_us(user_id, notifier)
+                elif text == "/all":
+                    _cmd_all(user_id, notifier)
                 elif text == "/help":
                     _cmd_help(user_id, notifier)
                 elif text == "/status":
@@ -348,7 +373,7 @@ def webhook():
 
         elif event_type == "follow":
             notifier.send_push_message(
-                "👋 感謝關注！\n\n輸入 /taiwan 立即取得台股每日焦點報告，輸入 /help 查看其他指令。"
+                "👋 感謝關注！\n\n輸入 /taiwan 取得台股報告、/us 取得美股報告、/all 兩份都發，輸入 /help 查看更多指令。"
             )
 
     return jsonify({"status": "ok"})
