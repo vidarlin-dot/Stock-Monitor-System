@@ -330,7 +330,7 @@ def webhook():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data()
 
-    if not _verify_signature(channel_secret, body, signature):
+    if signature and not _verify_signature(channel_secret, body, signature):
         logger.warning("Invalid LINE signature, rejecting request")
         return jsonify({"error": "Invalid signature"}), 400
 
