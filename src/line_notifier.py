@@ -41,7 +41,9 @@ class LineNotifier:
 
         self.token = self._get_env("LINE_CHANNEL_ACCESS_TOKEN")
         if not self.token:
-            logger.warning("LINE_CHANNEL_ACCESS_TOKEN not set. Report generated but not sent to LINE.")
+            logger.warning("LINE_CHANNEL_ACCESS_TOKEN not set. Skipping LINE push.")
+            self.use_broadcast = False
+            self.user_ids = []
 
         user_id_raw: Optional[str] = self._get_env("LINE_USER_ID", default="")
         if user_id_raw:
@@ -128,16 +130,25 @@ class LineNotifier:
             timeout=30,
         )
 
-        if resp.status_code != 200:
+        if resp.status_code == 200:
+            logger.info("LINE push message sent to '%s' successfully.", user_id)
+            return
+
+        if resp.status_code in (401, 403):
             logger.error(
-                "LINE API returned status %d for user %s: %s",
-                resp.status_code,
+                "LINE authentication failed for user %s. Check LINE_CHANNEL_ACCESS_TOKEN. Response: %s",
                 user_id,
                 resp.text,
             )
-            resp.raise_for_status()
+            return
 
-        logger.info("LINE push message sent to '%s' successfully.", user_id)
+        logger.error(
+            "LINE API returned status %d for user %s: %s",
+            resp.status_code,
+            user_id,
+            resp.text,
+        )
+        resp.raise_for_status()
 
     def _send_broadcast(self, message: str) -> None:
         """Broadcast a message to all followers."""
@@ -164,15 +175,23 @@ class LineNotifier:
             timeout=30,
         )
 
-        if resp.status_code != 200:
+        if resp.status_code == 200:
+            logger.info("LINE broadcast sent successfully.")
+            return
+
+        if resp.status_code in (401, 403):
             logger.error(
-                "LINE broadcast API returned status %d: %s",
-                resp.status_code,
+                "LINE authentication failed. Check LINE_CHANNEL_ACCESS_TOKEN. Response: %s",
                 resp.text,
             )
-            resp.raise_for_status()
+            return
 
-        logger.info("LINE broadcast sent successfully.")
+        logger.error(
+            "LINE broadcast API returned status %d: %s",
+            resp.status_code,
+            resp.text,
+        )
+        resp.raise_for_status()
 
     @staticmethod
     def _get_env(name: str, default: str = "") -> Optional[str]:
