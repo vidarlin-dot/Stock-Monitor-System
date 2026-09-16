@@ -1,0 +1,11 @@
+tunnel: line-bot-stocks
+credentials-file: C:\Users\User\.cloudflared\line-bot-stocks.json
+
+ingress:
+  - hostname: stocks.vidarlin.com
+    service: http://localhost:5000
+  - service: http_status:404
+
+logging:
+  level: info
+  output: stdout
