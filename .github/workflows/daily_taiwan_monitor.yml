@@ -28,18 +28,16 @@ jobs:
           python src/fetch_cnyes.py
 
       - name: Update QFII data in Google Sheet
-        run: |
-          printf '%s' "" > /tmp/gcp_key.json
-          GCP_SERVICE_ACCOUNT_JSON="" python src/update_qfii_sheet.py
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{secrets.GCP_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python src/update_qfii_sheet.py
 
       - name: Sync prices and analyst ratings to Google Sheet
-        run: |
-          printf '%s' "" > /tmp/gcp_key.json
-          GCP_SERVICE_ACCOUNT_JSON="" python src/update_taiwan_prices.py
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{secrets.GCP_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python src/update_taiwan_prices.py
 
       - name: Run Taiwan Stock Focus Report
         env:
