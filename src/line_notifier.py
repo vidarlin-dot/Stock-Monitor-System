@@ -194,6 +194,12 @@ class LineNotifier:
         resp.raise_for_status()
 
     @staticmethod
+    def send_broadcast_only(self, message: str) -> None:
+        """Force broadcast send, bypassing any push-mode checks.
+        Use this for webhook responses when the LINE channel only supports broadcast.
+        """
+        self._send_broadcast(message)
+
     def _get_env(name: str, default: str = "") -> Optional[str]:
         """Read an environment variable, falling back to *default*."""
         val: Optional[str] = os.environ.get(name)

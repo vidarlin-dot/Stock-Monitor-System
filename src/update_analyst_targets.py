@@ -7,25 +7,26 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import gspread
 import pytz
 import yfinance as yf
 from google.oauth2.service_account import Credentials
+from strategy import calc_trade_zones, validate_target_price, format_analyst_summary
 
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone('Asia/Taipei')
 
 
 def is_last_day_of_month() -> bool:
-    """Check if today is the last day of the current month."""
+    """Check if today is the last day of the current month (Taipei timezone)."""
     now_tw = datetime.now(TW_TZ)
-    today = now_tw.replace(hour=0, minute=0, second=0, microsecond=0)
-    tomorrow = today + timedelta(days=1)
-    return tomorrow.month != today.month
+    import calendar
+    _, last_day = calendar.monthrange(now_tw.year, now_tw.month)
+    return now_tw.day == last_day
 
 
 def get_credentials():
@@ -48,102 +49,125 @@ def get_credentials():
     return gspread.authorize(credentials), sheet_name
 
 
-def _generate_analyst_summary(recommendation_key: str, num_analysts: int, news_list: list) -> str:
-    """Generate a 20-character max summary from analyst data.
-
-    Args:
-        recommendation_key: e.g., strong_buy, buy, hold, sell
-        num_analysts: Number of analysts covering the stock
-        news_list: List of recent news articles from yfinance
-
-    Returns:
-        A concise summary string <= 20 characters
-    """
-    rec_map = {
-        "strong_buy": "\u5927\u8cb7",     # \u5927\u8cb7
-        "buy": "\u8cb7\u5165",           # \u8cb7\u5165
-        "outperform": "\u8d85\u908a\u5e02\u5834",  # \u8d85\u908a\u5e02\u5834
-        "overweight": "\u904e\u91cd",           # \u904e\u91cd
-        "hold": "\u6301\u6709",          # \u6301\u6709
-        "equal_weight": "\u7b49\u91cd",         # \u7b49\u91cd
-        "underweight": "\u4f4e\u914d",   # \u4f4e\u914d
-        "sell": "\u8ca7\u51fa",          # \u8ca7\u51fa
-    }
-
-    chinese_rec = rec_map.get(recommendation_key.lower(), "\u89c0\u671b")
-    summary = f"{chinese_rec} ({num_analysts}\u4f4d)"
-
-    if news_list:
-        keywords = _extract_sentiment_keywords(news_list)
-        if keywords and len(summary + " | " + keywords) <= 20:
-            summary += " | " + keywords
-
-    if len(summary) > 20:
-        summary = summary[:18] + ".."
-
-    return summary
+def _find_column_indices(headers: List[str]) -> Dict[str, int]:
+    """Find column indices supporting both English and Chinese headers."""
+    mapping = {}
+    for idx, h in enumerate(headers):
+        hl = h.lower()
+        if hl in ("ticker", "代碼"):
+            mapping["ticker"] = idx
+        elif hl in ("buyzone", "買進區間"):
+            mapping["buyzone"] = idx
+        elif hl in ("sellzone", "賣出區間"):
+            mapping["sellzone"] = idx
+        elif hl in ("notes", "備註"):
+            mapping["notes"] = idx
+        elif hl in ("analyst_comment", "分析師評論", "分析師見解", "分析師建議"):
+            mapping["analyst_comment"] = idx
+        elif hl in ("updated", "更新時間"):
+            mapping["updated"] = idx
+    return mapping
 
 
-def _extract_sentiment_keywords(news_list: list) -> str:
-    """Extract key sentiment words from recent news headlines.
+def _update_notes_column(
+    worksheet, row_idx: int, notes_idx: int,
+    existing_notes: str, summary_note: str, ticker: str,
+) -> None:
+    """Update notes column only if placeholder or auto-generated pattern changed."""
+    placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "\u2014"]
+    is_placeholder = existing_notes in placeholders
+    is_auto_pattern = bool(re.search(r"\(\d+位\)", existing_notes))
 
-    Returns:
-        Comma-separated English keywords found in recent news
-    """
-    positive_words = [
-        "buy", "upgrade", "strong", "bullish", "growth", "positive",
-        "record", "profit", "accelerate",
-    ]
+    should_update = False
+    update_reason = ""
+    if is_placeholder:
+        should_update = True
+        update_reason = "empty placeholder"
+    elif is_auto_pattern and summary_note != existing_notes:
+        should_update = True
+        update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
 
-    negative_words = [
-        "sell", "downgrade", "weak", "bearish", "risk", "decline",
-        "miss", "loss", "concern", "cut",
-    ]
+    if should_update:
+        worksheet.update_cell(row_idx, notes_idx + 1, summary_note)
+        logger.info("%s: Updated notes (%s): %s -> %s",
+            ticker, update_reason, repr(existing_notes), repr(summary_note))
+    else:
+        logger.info("%s: Preserving manual remarks (len=%d): %s",
+            ticker, len(existing_notes), repr(existing_notes))
 
-    all_text = ""
-    for item in news_list[:5]:
-        title = ""
-        summary_text = ""
-        if isinstance(item.get("content"), dict):
-            title = item["content"].get("title", "")
-            summary_text = item["content"].get("summary", "")
-        elif item.get("title"):
-            title = item.get("title", "")
-            summary_text = item.get("description", "")
-        all_text += f" {title} {summary_text}"
 
-    if not all_text.strip():
-        return ""
+def _process_stock_row(
+    stock, ticker: str, rows: list, i: int,
+    cols: Dict[str, int], is_month_end: bool,
+) -> None:
+    """Process a single stock row: update analyst_comment, timestamps, zones, notes."""
+    worksheet = stock._worksheet  # set by caller
+    info = stock.info
 
-    text_lower = all_text.lower()
-    found = []
+    current = info.get("currentPrice", 0)
+    mean = info.get("targetMeanPrice", 0)
+    high = info.get("targetHighPrice", 0)
+    low = info.get("targetLowPrice", 0)
+    analysts = info.get("numberOfAnalystOpinions", 0)
+    rec_key = info.get("recommendationKey", "")
 
-    for kw in positive_words:
-        if kw in text_lower:
-            found.append(kw)
-            if len(found) >= 2:
-                break
+    # Always update analyst_comment column
+    if "analyst_comment" in cols:
+        news_list = []
+        if hasattr(stock, "news") and stock.news:
+            news_list = stock.news[:5]
+        new_summary = format_analyst_summary(rec_key, analysts, news_list)
+        worksheet.update_cell(i, cols["analyst_comment"] + 1, new_summary)
+        logger.info("%s: Updated analyst_comment to: %s", ticker, new_summary)
 
-    for kw in negative_words:
-        if kw in text_lower:
-            found.append(kw)
-            if len(found) >= 2:
-                break
+    # Always update timestamp
+    if "updated" in cols:
+        worksheet.update_cell(i, cols["updated"] + 1, datetime.now().isoformat())
 
-    return " | ".join(found[:2]) if found else ""
+    if not is_month_end:
+        return
+
+    if not mean or not low or not high:
+        logger.debug("%s: No analyst data available for zone update", ticker)
+        return
+
+    # Validate target prices
+    valid_mean, mean_anomalous = validate_target_price(current, mean)
+    if mean_anomalous:
+        valid_mean = None
+        logger.warning("%s: anomalous mean target %.2f vs price %.2f, skipping zone calc",
+            ticker, mean, current)
+    if not valid_mean or not low or not high:
+        logger.debug("%s: No valid analyst data for zone update", ticker)
+        return
+
+    # Unified buy/sell zone calculation (single source of truth from strategy.py)
+    buy_zone_str, sell_zone_str = calc_trade_zones(current, valid_mean, high, ma20_override=None)
+    if not buy_zone_str or not sell_zone_str:
+        buy_zone_str = f"{low * 0.9:.2f},{low * 0.85:.2f}"
+        sell_zone_str = f"{valid_mean:.2f},{valid_mean * 1.05:.2f}"
+
+    if "buyzone" in cols:
+        worksheet.update_cell(i, cols["buyzone"] + 1, buy_zone_str)
+    if "sellzone" in cols:
+        worksheet.update_cell(i, cols["sellzone"] + 1, sell_zone_str)
+
+    if "notes" in cols:
+        news_list = []
+        if hasattr(stock, "news") and stock.news:
+            news_list = stock.news[:5]
+        summary_note = format_analyst_summary(rec_key, analysts, news_list)
+        existing_notes_row = rows[i - 1]
+        existing_notes = (str(existing_notes_row[cols["notes"]]).strip()
+                          if cols["notes"] < len(existing_notes_row) else '')
+        _update_notes_column(worksheet, i, cols["notes"], existing_notes, summary_note, ticker)
+
+    logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)",
+        ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
 
 
 def update_analyst_targets() -> None:
-    """Fetch analyst targets from yfinance and update Google Sheet on month-end.
-
-    Updates:
-    1. Buy zone (based on target low price)
-    2. Sell zone (based on mean/median target prices)
-    3. Notes column (analyst rating summary)
-    """
-    # Always run: update analyst comments daily
-    # Buy/Sell zones are only updated on last day of month
-
+    """Fetch analyst targets from yfinance and update Google Sheet (Holdings) on month-end."""
     client, sheet_name = get_credentials()
     worksheet = client.open(sheet_name).worksheet("Holdings")
 
@@ -153,34 +177,12 @@ def update_analyst_targets() -> None:
         return
 
     headers = [h.strip() for h in rows[0]]
+    cols = _find_column_indices(headers)
 
-    # Find column indices (support both English and Chinese headers)
-    ticker_idx = None
-    buyzone_idx = None
-    sellzone_idx = None
-    notes_idx = None
-    analyst_comment_idx = None  # New column for auto-generated analyst commentary
-    updated_idx = None
-
-    for idx, h in enumerate(headers):
-        hl = h.lower()
-        if hl in ("ticker", "\u4ee3\u78bc"):
-            ticker_idx = idx
-        elif hl in ("buyzone", "\u8cb7\u76df\u5340\u9593"):
-            buyzone_idx = idx
-        elif hl in ("sellzone", "\u8ca3\u51fa\u5340\u9593"):
-            sellzone_idx = idx
-        elif hl in ("notes", "\u5099\u8a3b"):
-            notes_idx = idx
-        elif hl in ("analyst_comment", "\u5206\u6790\u5e08\u8a55\u8ad6", "\u5206\u6790\u5e08\u898b\u89e3", "\u5206\u6790\u5e08\u5061\u8b70"):
-            analyst_comment_idx = idx
-        elif hl in ("updated", "\u66f4\u65b0\u6642\u9593"):
-            updated_idx = idx
-
-    if ticker_idx is None:
+    if "ticker" not in cols:
         raise ValueError("Ticker column not found.")
 
-    logger.info("Starting monthly analyst targets update...")
+    logger.info("Starting monthly analyst targets update (Holdings)...")
 
     updated_count = 0
     skipped_count = 0
@@ -189,105 +191,16 @@ def update_analyst_targets() -> None:
         if not any(row):
             continue
 
-        ticker = row[ticker_idx].strip().upper()
+        ticker = row[cols["ticker"]].strip().upper()
         if not ticker:
             continue
 
         try:
             stock = yf.Ticker(ticker)
-            info = stock.info
-
-            current = info.get("currentPrice", 0)
-            mean = info.get("targetMeanPrice", 0)
-            high = info.get("targetHighPrice", 0)
-            low = info.get("targetLowPrice", 0)
-            median = info.get("targetMedianPrice", 0)
-            analysts = info.get("numberOfAnalystOpinions", 0)
-            rec_key = info.get("recommendationKey", "")
-
+            stock._worksheet = worksheet  # inject for _process_stock_row
             is_month_end = is_last_day_of_month()
-            
-            # --- Always update analyst comment column (analyst_comment) ---
-            if analyst_comment_idx is not None:
-                news_list = []
-                if hasattr(stock, "news") and stock.news:
-                    news_list = stock.news[:5]
-                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
-                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
-                logger.info("%s: Updated analyst_comment to: %s", ticker, new_summary)
-            
-            # Update timestamp always
-            if updated_idx is not None:
-                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
-            
-            # --- Only update buy/sell zones on last day of month ---
-            if not is_month_end:
-                updated_count += 1
-                continue
-            
-            if not mean or not low or not high:
-                logger.debug("%s: No analyst data available for zone update", ticker)
-                skipped_count += 1
-                continue
 
-            # Calculate buy zone from target low price
-            buy_zone_low = low * 0.9
-            buy_zone_high = low * 0.85
-            buy_zone_str = f"{buy_zone_low:.2f},{buy_zone_high:.2f}"
-
-            # Calculate sell zone from mean and median target prices
-            sell_zone_mean = mean * 1.0
-            sell_zone_median = median * 1.0
-            sell_zone_str = f"{sell_zone_mean:.2f},{sell_zone_median:.2f}"
-
-            # Update buy/sell zones in sheet
-            if buyzone_idx is not None:
-                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
-            if sellzone_idx is not None:
-                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
-
-            # --- NEW: Generate and update analyst summary note ---
-            if notes_idx is not None:
-                # Get recent news for keyword extraction
-                news_list = []
-                if hasattr(stock, "news") and stock.news:
-                    news_list = stock.news[:5]
-
-                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
-
-                # Read existing notes first
-                existing_notes_row = rows[i - 1]
-                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ''
-
-                placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "—"]
-                is_placeholder = existing_notes in placeholders
-                
-                import re
-                is_auto_pattern = bool(re.search(r"\(\d+\u4f4d\)", existing_notes))
-
-                
-                should_update = False
-                update_reason = ""
-                
-                if is_placeholder:
-                    should_update = True
-                    update_reason = "empty placeholder"
-                elif is_auto_pattern and summary_note != existing_notes:
-                    should_update = True
-                    update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
-                
-                if should_update:
-                    worksheet.update_cell(i, notes_idx + 1, summary_note)
-                    logger.info("%s: Updated notes (%s): %s -> %s", 
-                        ticker, update_reason, repr(existing_notes), repr(summary_note))
-                else:
-                    logger.info("%s: Preserving manual remarks (len=%d): %s", 
-                        ticker, len(existing_notes), repr(existing_notes))
-
-            # --- NEW: Always update analyst comment column (analyst_comment) ---
-            logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)",
-                ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
-
+            _process_stock_row(stock, ticker, rows, i, cols, is_month_end)
             updated_count += 1
 
         except Exception as exc:
@@ -297,185 +210,50 @@ def update_analyst_targets() -> None:
     logger.info("Monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
 
 
-
 def update_taiwan_analyst_targets() -> None:
+    """Fetch Taiwan analyst targets and update Google Sheet (Taiwan_Stock) on month-end."""
     client, sheet_name = get_credentials()
     worksheet = client.open(sheet_name).worksheet("Taiwan_Stock")
+
     rows = worksheet.get_all_values()
     if len(rows) < 2:
         logger.warning("Taiwan_Stock sheet has fewer than 2 rows.")
         return
+
     headers = [h.strip() for h in rows[0]]
-    ticker_idx = buyzone_idx = sellzone_idx = notes_idx = analyst_comment_idx = updated_idx = None
-    for idx, h in enumerate(headers):
-        hl = h.lower()
-        if hl in ("ticker", "代碼"): ticker_idx = idx
-        elif hl in ("buyzone", "買進區間"): buyzone_idx = idx
-        elif hl in ("sellzone", "賣出區間"): sellzone_idx = idx
-        elif hl in ("notes", "備註"): notes_idx = idx
-        elif hl in ("analyst_comment", "分析師評論", "分析師見解", "分析師建議"): analyst_comment_idx = idx
-        elif hl in ("updated", "更新時間"): updated_idx = idx
-    if ticker_idx is None:
+    cols = _find_column_indices(headers)
+
+    if "ticker" not in cols:
         raise ValueError("Ticker column not found in Taiwan_Stock sheet.")
+
     logger.info("Starting Taiwan monthly analyst targets update...")
+
     updated_count = 0
     skipped_count = 0
+
     for i, row in enumerate(rows[1:], start=2):
         if not any(row):
             continue
-        ticker_raw = row[ticker_idx].strip()
+
+        ticker_raw = row[cols["ticker"]].strip()
         if not ticker_raw:
             continue
+
         yf_ticker = ticker_raw + ".TW"
         try:
             stock = yf.Ticker(yf_ticker)
-            info = stock.info
-            current = info.get("currentPrice", 0)
-            mean = info.get("targetMeanPrice", 0)
-            high = info.get("targetHighPrice", 0)
-            low = info.get("targetLowPrice", 0)
-            median = info.get("targetMedianPrice", 0)
-            analysts = info.get("numberOfAnalystOpinions", 0)
-            rec_key = info.get("recommendationKey", "")
+            stock._worksheet = worksheet
             is_month_end = is_last_day_of_month()
-            if analyst_comment_idx is not None:
-                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
-                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
-                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
-                logger.info("%s: Updated analyst_comment to: %s", yf_ticker, new_summary)
-            if updated_idx is not None:
-                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
-            if not is_month_end:
-                updated_count += 1
-                continue
-            if not mean or not low or not high:
-                logger.debug("%s: No analyst data for zone update", yf_ticker)
-                skipped_count += 1
-                continue
-            buy_zone_str = f"{low * 0.9:.2f},{low * 0.85:.2f}"
-            sell_zone_str = f"{mean * 1.0:.2f},{median * 1.0:.2f}"
-            if buyzone_idx is not None:
-                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
-            if sellzone_idx is not None:
-                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
-            if notes_idx is not None:
-                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
-                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
-                existing_notes_row = rows[i - 1]
-                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ""
-                placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "\u2014"]
-                is_placeholder = existing_notes in placeholders
-                import re as _re
-                is_auto_pattern = bool(_re.search(r"\(\d+位\)", existing_notes))
-                should_update = False
-                update_reason = ""
-                if is_placeholder:
-                    should_update = True
-                    update_reason = "empty placeholder"
-                elif is_auto_pattern and summary_note != existing_notes:
-                    should_update = True
-                    update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
-                if should_update:
-                    worksheet.update_cell(i, notes_idx + 1, summary_note)
-                    logger.info("%s: Updated notes (%s): %s -> %s", yf_ticker, update_reason, repr(existing_notes), repr(summary_note))
-                else:
-                    logger.info("%s: Preserving manual remarks (len=%d): %s", yf_ticker, len(existing_notes), repr(existing_notes))
-            logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)", yf_ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
+
+            _process_stock_row(stock, yf_ticker, rows, i, cols, is_month_end)
             updated_count += 1
+
         except Exception as exc:
             logger.error("%s: Error - %s", yf_ticker, exc)
             skipped_count += 1
+
     logger.info("Taiwan monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
 
-
-def update_taiwan_analyst_targets() -> None:
-    client, sheet_name = get_credentials()
-    worksheet = client.open(sheet_name).worksheet("Taiwan_Stock")
-    rows = worksheet.get_all_values()
-    if len(rows) < 2:
-        logger.warning("Taiwan_Stock sheet has fewer than 2 rows.")
-        return
-    headers = [h.strip() for h in rows[0]]
-    ticker_idx = buyzone_idx = sellzone_idx = notes_idx = analyst_comment_idx = updated_idx = None
-    for idx, h in enumerate(headers):
-        hl = h.lower()
-        if hl in ("ticker", "代碼"): ticker_idx = idx
-        elif hl in ("buyzone", "買進區間"): buyzone_idx = idx
-        elif hl in ("sellzone", "賣出區間"): sellzone_idx = idx
-        elif hl in ("notes", "備註"): notes_idx = idx
-        elif hl in ("analyst_comment", "分析師評論", "分析師見解", "分析師建議"): analyst_comment_idx = idx
-        elif hl in ("updated", "更新時間"): updated_idx = idx
-    if ticker_idx is None:
-        raise ValueError("Ticker column not found in Taiwan_Stock sheet.")
-    logger.info("Starting Taiwan monthly analyst targets update...")
-    updated_count = 0
-    skipped_count = 0
-    for i, row in enumerate(rows[1:], start=2):
-        if not any(row):
-            continue
-        ticker_raw = row[ticker_idx].strip()
-        if not ticker_raw:
-            continue
-        yf_ticker = ticker_raw + ".TW"
-        try:
-            stock = yf.Ticker(yf_ticker)
-            info = stock.info
-            current = info.get("currentPrice", 0)
-            mean = info.get("targetMeanPrice", 0)
-            high = info.get("targetHighPrice", 0)
-            low = info.get("targetLowPrice", 0)
-            median = info.get("targetMedianPrice", 0)
-            analysts = info.get("numberOfAnalystOpinions", 0)
-            rec_key = info.get("recommendationKey", "")
-            is_month_end = is_last_day_of_month()
-            if analyst_comment_idx is not None:
-                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
-                new_summary = _generate_analyst_summary(rec_key, analysts, news_list)
-                worksheet.update_cell(i, analyst_comment_idx + 1, new_summary)
-                logger.info("%s: Updated analyst_comment to: %s", yf_ticker, new_summary)
-            if updated_idx is not None:
-                worksheet.update_cell(i, updated_idx + 1, datetime.now().isoformat())
-            if not is_month_end:
-                updated_count += 1
-                continue
-            if not mean or not low or not high:
-                logger.debug("%s: No analyst data for zone update", yf_ticker)
-                skipped_count += 1
-                continue
-            buy_zone_str = f"{low * 0.9:.2f},{low * 0.85:.2f}"
-            sell_zone_str = f"{mean * 1.0:.2f},{median * 1.0:.2f}"
-            if buyzone_idx is not None:
-                worksheet.update_cell(i, buyzone_idx + 1, buy_zone_str)
-            if sellzone_idx is not None:
-                worksheet.update_cell(i, sellzone_idx + 1, sell_zone_str)
-            if notes_idx is not None:
-                news_list = stock.news[:5] if hasattr(stock, "news") and stock.news else []
-                summary_note = _generate_analyst_summary(rec_key, analysts, news_list)
-                existing_notes_row = rows[i - 1]
-                existing_notes = str(existing_notes_row[notes_idx]).strip() if notes_idx < len(existing_notes_row) else ""
-                placeholders = ["see notes", "(見備註)", "N/A", "", "N/A", "\u2014"]
-                is_placeholder = existing_notes in placeholders
-                import re as _re
-                is_auto_pattern = bool(_re.search(r"\(\d+位\)", existing_notes))
-                should_update = False
-                update_reason = ""
-                if is_placeholder:
-                    should_update = True
-                    update_reason = "empty placeholder"
-                elif is_auto_pattern and summary_note != existing_notes:
-                    should_update = True
-                    update_reason = f"auto pattern changed ({existing_notes} -> {summary_note})"
-                if should_update:
-                    worksheet.update_cell(i, notes_idx + 1, summary_note)
-                    logger.info("%s: Updated notes (%s): %s -> %s", yf_ticker, update_reason, repr(existing_notes), repr(summary_note))
-                else:
-                    logger.info("%s: Preserving manual remarks (len=%d): %s", yf_ticker, len(existing_notes), repr(existing_notes))
-            logger.info("%s: Buy=[%s], Sell=[%s] (%d analysts, %s)", yf_ticker, buy_zone_str, sell_zone_str, analysts, rec_key)
-            updated_count += 1
-        except Exception as exc:
-            logger.error("%s: Error - %s", yf_ticker, exc)
-            skipped_count += 1
-    logger.info("Taiwan monthly update complete: %d updated, %d skipped", updated_count, skipped_count)
 
 def main() -> None:
     """Main entry point."""

@@ -2,6 +2,7 @@ name: Monthly Analyst Targets Update
 
 on:
   schedule:
+    # Runs on days 28-31; Python checks is_last_day_of_month() to skip non-final days
     - cron: '30 15 28-31 * *'
   workflow_dispatch:
 

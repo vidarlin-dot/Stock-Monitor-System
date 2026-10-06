@@ -97,7 +97,7 @@ def _cmd_help(user_id: str, notifier: Any) -> None:
         "• /help   — 顯示此說明\n\n"
         "每日早上 10:00（台北時間）自動發送，也可手動觸發。"
     )
-    notifier.send_push_message(msg)
+    notifier.send_broadcast_only(msg)
 
 
 def _cmd_status(user_id: str, notifier: Any) -> None:
@@ -107,7 +107,7 @@ def _cmd_status(user_id: str, notifier: Any) -> None:
         msg = f"⏰ 上次報告發送時間：{last}"
     else:
         msg = "⏰ 尚未發送過報告。使用 /taiwan 手動觸發。"
-    notifier.send_push_message(msg)
+    notifier.send_broadcast_only(msg)
 
 
 def _run_taiwan_report_async(notifier: Any) -> None:
@@ -150,7 +150,7 @@ def _run_taiwan_report_async(notifier: Any) -> None:
         logger.info("Background: Taiwan report sent successfully")
     except Exception as exc:
         logger.exception("Background: Taiwan report failed: %s", exc)
-        notifier.send_push_message(
+        notifier.send_broadcast_only(
             f"⚠️ 台股報告生成時發生錯誤：{exc}"
         )
 
@@ -158,7 +158,7 @@ def _run_taiwan_report_async(notifier: Any) -> None:
 def _cmd_taiwan(user_id: str, notifier: Any) -> None:
     """Start report generation in background and reply immediately."""
     ack = "⏳ 正在生成台股每日報告，請稍候..."
-    notifier.send_push_message(ack)
+    notifier.send_broadcast_only(ack)
     threading.Thread(target=_run_taiwan_report_impl, args=(notifier,), daemon=True).start()
     logger.info("Taiwan report thread started for user %s", user_id)
 
@@ -178,17 +178,17 @@ def _run_us_report_impl(notifier: Any) -> None:
         logger.info("US report sent successfully")
     except Exception as exc:
         logger.exception("US report failed: %s", exc)
-        notifier.send_push_message(f"⚠️ 美股報告生成時發生錯誤：{exc}")
+        notifier.send_broadcast_only(f"⚠️ 美股報告生成時發生錯誤：{exc}")
 
 def _cmd_us(user_id: str, notifier: Any) -> None:
     """Start US report generation in background."""
-    notifier.send_push_message("⏳ 正在生成美股焦點報告，請稍候...")
+    notifier.send_broadcast_only("⏳ 正在生成美股焦點報告，請稍候...")
     threading.Thread(target=_run_us_report_impl, args=(notifier,), daemon=True).start()
     logger.info("US report thread started for user %s", user_id)
 
 def _cmd_all(user_id: str, notifier: Any) -> None:
     """Send both Taiwan and US reports sequentially."""
-    notifier.send_push_message("⏳ 正在生成台股+美股報告，請稍候...")
+    notifier.send_broadcast_only("⏳ 正在生成台股+美股報告，請稍候...")
     threading.Thread(target=_run_taiwan_report_impl, args=(notifier,), daemon=True).start()
     threading.Thread(target=_run_us_report_impl, args=(notifier,), daemon=True).start()
     logger.info("Both reports thread started for user %s", user_id)
@@ -215,13 +215,13 @@ def _run_taiwan_report_impl(notifier: Any) -> None:
                 f"# 台股AI摘要｜{date_str}\n\n"
                 f"⚠️ 註：今日處於休市日，今日不派發。\n"
             )
-            notifier.send_push_message(msg)
+            notifier.send_broadcast_only(msg)
             return
 
         manager = GoogleSheetsManager()
         watchlist = manager.load_taiwan_stocks()
         if not watchlist:
-            notifier.send_push_message("❌ 無法載入股監人watchlist，請檢查Google Sheets。")
+            notifier.send_broadcast_only("❌ 無法載入股監人watchlist，請檢查Google Sheets。")
             return
 
         cnyes_ratings = load_cnyes_ratings()
@@ -246,7 +246,7 @@ def _run_taiwan_report_impl(notifier: Any) -> None:
             sd.qfii_broker = qfii_info["qfii_broker"]
 
         if not stocks_data:
-            notifier.send_push_message(
+            notifier.send_broadcast_only(
                 "❌ 無法取得股票資料，請稍後再試。"
             )
             return
@@ -264,7 +264,7 @@ def _run_taiwan_report_impl(notifier: Any) -> None:
 
     except Exception as exc:
         logger.exception("Report generation failed: %s", exc)
-        notifier.send_push_message(f"⚠️ 報告生成時發生錯誤：{exc}")
+        notifier.send_broadcast_only(f"⚠️ 報告生成時發生錯誤：{exc}")
 
 
 def _extract_ticker_from_row(h: Dict[str, Any]) -> str:
@@ -276,7 +276,7 @@ def _extract_ticker_from_row(h: Dict[str, Any]) -> str:
 
 def _send_report_chunks(notifier: Any, message: str, max_length: int = 4800) -> None:
     if len(message) <= max_length:
-        notifier.send_push_message(message)
+        notifier.send_broadcast_only(message)
         return
     lines = message.split("\n")
     current_chunk: list = []
@@ -284,13 +284,27 @@ def _send_report_chunks(notifier: Any, message: str, max_length: int = 4800) -> 
     for line in lines:
         line_len = len(line) + 1
         if current_length + line_len > max_length and current_chunk:
-            notifier.send_push_message("\n".join(current_chunk))
+            notifier.send_broadcast_only("\n".join(current_chunk))
             current_chunk = []
             current_length = 0
         current_chunk.append(line)
         current_length += line_len
     if current_chunk:
-        notifier.send_push_message("\n".join(current_chunk))
+        notifier.send_broadcast_only("\n".join(current_chunk))
+
+
+
+def _cmd_resend(user_id: str, notifier: Any, text: str) -> None:
+    """Handle /resend [taiwan/us/all] command."""
+    target = text.replace("/resend", "").strip().lower()
+    if target in ("", "all"):
+        _cmd_all(user_id, notifier)
+    elif target == "taiwan":
+        _cmd_taiwan(user_id, notifier)
+    elif target == "us":
+        _cmd_us(user_id, notifier)
+    else:
+        notifier.send_broadcast_only("未知重發目標，請使用：/resend taiwan /resend us /resend all")
 
 
 # ---------------------------------------------------------------------------
@@ -313,8 +327,6 @@ def _load_gcp_json_from_env() -> Optional[str]:
     return normalized
 
 
-def get_channel_token() -> Optional[str]:
-    return os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 
 
 @app.route("/webhook/line", methods=["POST"])
@@ -367,12 +379,14 @@ def webhook():
                     _cmd_help(user_id, notifier)
                 elif text == "/status":
                     _cmd_status(user_id, notifier)
+                elif text.startswith("/resend"):
+                    _cmd_resend(user_id, notifier, text)
                 else:
                     resp = "未認識的指令，請輸入 /help 查看可用指令。"
-                    notifier.send_push_message(resp)
+                    notifier.send_broadcast_only(resp)
 
         elif event_type == "follow":
-            notifier.send_push_message(
+            notifier.send_broadcast_only(
                 "👋 感謝關注！\n\n輸入 /taiwan 取得台股報告、/us 取得美股報告、/all 兩份都發，輸入 /help 查看更多指令。"
             )
 

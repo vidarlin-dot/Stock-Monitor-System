@@ -44,6 +44,5 @@ jobs:
           GCP_SERVICE_ACCOUNT_JSON: ${{secrets.GCP_SERVICE_ACCOUNT_JSON }}
           SHEET_NAME: ${{secrets.SHEET_NAME }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_USER_ID: U578787012e98bcbdaee9cc91bc385ff7
         run: |
           python src/daily_taiwan_report.py

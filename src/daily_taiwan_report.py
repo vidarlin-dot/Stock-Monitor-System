@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Taiwan stock daily focus report builder.
 
 FocusScore pipeline:
@@ -106,8 +106,16 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     if analyst_info:
         lines.append(f"📝 分析師建議：{' | '.join(analyst_info)}")
 
+    # 若 QFII 目標價顯著低於現價（跌幅 >10%），強制標示偏空
+    qfii_target_check = qfii.get("qfii_target", 0)
+    sentiment_override = None
+    if qfii_target_check > 0 and price > 0:
+        qfii_upside_pct = (qfii_target_check - price) / price * 100
+        if qfii_upside_pct < -10:
+            sentiment_override = "偏空"
     sentiment_map = {"偏多": "偏多", "偏空": "偏空", "中性": "中性"}
-    lines.append(f"💬 市場情緒：{sentiment_map.get(category, '偏多')}")
+    displayed_sentiment = sentiment_override or sentiment_map.get(category, "偏多")
+    lines.append(f"💬 市場情緒：{displayed_sentiment}")
 
     bull_factors = _extract_bull_factors(data, score_info, h)
     if bull_factors:
@@ -127,7 +135,8 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
 
     if qfii_target > 0 and price > 0:
         ups_pct = (qfii_target - price) / price * 100
-        lines.append(f"📝 備註：外資目標價 {_fmt_price(qfii_target)} 元，距現價 {ups_pct:+.1f}% 空間")
+        direction = f"上行 {ups_pct:+.1f}%" if ups_pct > 0 else f"下行 {abs(ups_pct):.1f}%"
+        lines.append(f"📝 備註：外資目標價 {_fmt_price(qfii_target)} 元，距現價 {direction}")
 
     return "\n".join(lines)
 
@@ -156,7 +165,13 @@ def _compute_trade_range(data: StockMarketData) -> tuple:
         buy_range = f"現價附近或回測 MA20 ({_fmt_price(ma20)} 元) 時留意"
 
     if target > 0:
-        sell_range = f"{_fmt_price(target * 0.95)}～{_fmt_price(target * 1.05)} 元"
+        if price < target:
+            # 價格低於目標價（尚有上行空間）：賣出區間以目標價為基準
+            sell_range = f"{_fmt_price(target * 0.95)}～{_fmt_price(target * 1.05)} 元"
+        else:
+            # 價格已超過或接近目標價：賣出區間改以現價或近期高點為基準
+            ref = high_20d if high_20d > 0 else price
+            sell_range = f"{_fmt_price(ref * 0.97)}～{_fmt_price(ref * 1.03)} 元"
     elif high_20d > 0:
         sell_range = f"{_fmt_price(high_20d)}～{_fmt_price(high_20d * 1.05)} 元（近期高點區間）"
     else:
@@ -214,8 +229,12 @@ def _extract_bear_factors(data: StockMarketData, score_info: Dict[str, Any]) -> 
     if change > 5:
         factors.append(f"單日大漲 {change:.1f}%，追價需谨慎")
 
-    if data.high_20d > 0 and price > data.high_20d * 0.98:
-        factors.append(f"接近 20 日高點 {_fmt_price(data.high_20d)}，突破後方可續持")
+    if data.high_20d > 0:
+        dist_to_high = (data.high_20d - price) / data.high_20d * 100
+        if 0 < dist_to_high <= 2:
+            # 股價接近但尚未突破 20 日高點：列入利空
+            factors.append(f"接近 20 日高點 {_fmt_price(data.high_20d)}，突破後方可續持")
+        # price >= high_20d: 已突破高點，屬強勢利多訊號，不列入利空
 
     if data.avg_volume_20d > 0 and data.volume < data.avg_volume_20d * 0.7:
         factors.append(f"成交量萎縮至 20 日均量 {data.volume/data.avg_volume_20d:.1f} 倍，缺乏動能")
@@ -241,12 +260,13 @@ def _extract_recent_events(data: StockMarketData, h: Dict[str, Any]) -> List[str
             earn_dt = datetime.strptime(str(data.next_earnings_date), "%Y-%m-%d")
             earn_dt = earn_dt.replace(tzinfo=TW_TZ)
             days_left = (earn_dt - now).days
-            if days_left >= 0:
+            if days_left > 0:
                 events.append(f"財報日 {data.next_earnings_date}（{days_left} 天後）")
-            else:
-                events.append(f"財報日 {data.next_earnings_date}（已過）")
+            elif days_left == 0:
+                events.append(f"財報日 {data.next_earnings_date}（今日）")
+            # days_left < 0：已過日期不列入營運焦點
         except (ValueError, TypeError):
-            events.append(f"財報日 {data.next_earnings_date}")
+            pass
 
     if data.eps_estimate > 0:
         events.append(f"EPS 預估 {_fmt_price(data.eps_estimate)} 元")
@@ -507,15 +527,31 @@ def main():
 
 
 def _send_report_chunks(notifier, message: str, max_length: int = 4800) -> None:
-    if len(message) <= max_length:
-        notifier.send_push_message(message)
-        return
+    """Send report in chunks.  Long lines are auto-wrapped to prevent
+    LINE _truncate_message from cutting a sentence mid-word."""
+    # Wrap any line longer than max_length into smaller segments
+    raw_lines = message.split("\n")
+    wrapped_lines = []
+    for line in raw_lines:
+        if len(line) > max_length:
+            start = 0
+            while start < len(line):
+                end = min(start + max_length, len(line))
+                # Search backward for a safe break point at punctuation
+                break_at = end
+                for delim in (" ", "，", "。", "；", "、", "|", "）", "」"):
+                    pos = line.rfind(delim, start, end)
+                    if pos > start:
+                        break_at = pos
+                        break
+                wrapped_lines.append(line[start:break_at])
+                start = break_at if break_at == end else break_at + 1
+        else:
+            wrapped_lines.append(line)
 
-    lines = message.split("\n")
     current_chunk = []
     current_length = 0
-
-    for line in lines:
+    for line in wrapped_lines:
         line_len = len(line) + 1
         if current_length + line_len > max_length and current_chunk:
             notifier.send_push_message("\n".join(current_chunk))
