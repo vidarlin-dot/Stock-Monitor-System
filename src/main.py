@@ -49,7 +49,7 @@ def _build_stock_block(ticker, data, h, score_info):
     company = data.company_name or ticker
 
     lines.append(f"\n📊 {ticker} {company}")
-    lines.append(f"📈 现价：{_fmt_price(price)}  ({data.day_change_pct:+.2f}%)")
+    lines.append(f"📈 現價：{_fmt_price(price)}  ({data.day_change_pct:+.2f}%)")
 
     ma20 = data.close_20d
     ma5 = data.close_5d
@@ -60,36 +60,36 @@ def _build_stock_block(ticker, data, h, score_info):
     elif ma5 > 0:
         buy_zone = f"{_fmt_price(ma5 * 0.97)}～{_fmt_price(price * 0.98)}"
     else:
-        buy_zone = f"现价附近或回测 MA20 ({_fmt_price(ma20)})"
+        buy_zone = f"現價附近或回測 MA20 ({_fmt_price(ma20)})"
     if target > 0:
         sell_zone = f"{_fmt_price(target * 0.95)}～{_fmt_price(target * 1.05)}"
     elif data.high_20d > 0:
         sell_zone = f"{_fmt_price(data.high_20d)}～{_fmt_price(data.high_20d * 1.05)}"
-    if buy_zone: lines.append(f"⬆️ 买进区间：{buy_zone}")
-    if sell_zone: lines.append(f"⬇️ 卖出区间：{sell_zone}")
+    if buy_zone: lines.append(f"⬆️ 買進區間：{buy_zone}")
+    if sell_zone: lines.append(f"⬇️ 賣出區間：{sell_zone}")
 
     ups = 0.0
     if target > 0 and price > 0:
         ups = (target - price) / price * 100
-    if rec: lines.append(f"📝 分析师建议：{rec} ({data.analysts}家追蹤)")
-    if target > 0: lines.append(f"🎯 目标价：{_fmt_price(target)} (距现价 {ups:+.1f}%)")
-    if notes: lines.append(f"📌 备注：{notes[:40]}")
-    if analyst_comment: lines.append(f"📌 分析师评论：{analyst_comment[:40]}")
+    if rec: lines.append(f"📝 分析師建議：{rec} ({data.analysts}家追蹤)")
+    if target > 0: lines.append(f"🎯 目標價：{_fmt_price(target)} (距現價 {ups:+.1f}%)")
+    if notes: lines.append(f"📌 備註：{notes[:40]}")
+    if analyst_comment: lines.append(f"📌 分析師評論：{analyst_comment[:40]}")
 
     cat = score_info["category"]
     score = score_info["focus_score"]
     lines.append(f"🔥 FocusScore：{score:.0f} 分 | {cat}")
 
     ops = []
-    if ups > 15: ops.append(f"距目标价 {ups:.0f}% 空间，可考虑分批布局")
-    elif ups > 5: ops.append(f"距目标价 {ups:.0f}%，观察回调买点")
-    elif ups < -5: ops.append("股价已超过目标价，注意获利了结时机")
-    if data.day_change_pct > 5: ops.append("涨幅过大，建议等待回调再进场")
-    elif data.day_change_pct < -5: ops.append("跌幅较大，确认支撑站稳后再考虑接单")
-    if cat == "偏多焦点" and score >= 70: ops.append("整体评价偏多，可逢低留意")
-    elif cat == "风险焦点": ops.append("风险扣分较高，建议保守操作")
-    if not ops: ops.append("观察量价配合，等待明确信号")
-    lines.append(f"📝 操作建议：{'; '.join(ops[:2])}")
+    if ups > 15: ops.append(f"距目標價 {ups:.0f}% 空間，可考慮分批布局")
+    elif ups > 5: ops.append(f"距目標價 {ups:.0f}%，觀察回調買點")
+    elif ups < -5: ops.append("股價已超過目標價，注意獲利了結時機")
+    if data.day_change_pct > 5: ops.append("漲幅過大，建議等待回調再進場")
+    elif data.day_change_pct < -5: ops.append("跌幅較大，確認支撐站穩後再考慮接單")
+    if cat == "偏多焦點" and score >= 70: ops.append("整體評價偏多，可逢低留意")
+    elif cat == "風險焦點": ops.append("風險扣分較高，建議保守操作")
+    if not ops: ops.append("觀察量價配合，等待明確訊號")
+    lines.append(f"📝 操作建議：{'; '.join(ops[:2])}")
     return chr(10).join(lines)
 
 
