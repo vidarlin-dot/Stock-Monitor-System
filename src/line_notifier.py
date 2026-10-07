@@ -84,8 +84,6 @@ class LineNotifier:
         
         return truncated
 
-
-
     def send_push_message(self, message: str) -> None:
         """Send a message to configured recipients.
 
@@ -193,25 +191,15 @@ class LineNotifier:
         )
         resp.raise_for_status()
 
-    @staticmethod
     def send_broadcast_only(self, message: str) -> None:
         """Force broadcast send, bypassing any push-mode checks.
         Use this for webhook responses when the LINE channel only supports broadcast.
         """
         self._send_broadcast(message)
 
-    def _get_env(name: str, default: str = "") -> Optional[str]:
+    def _get_env(self, name: str, default: str = "") -> Optional[str]:
         """Read an environment variable, falling back to *default*."""
         val: Optional[str] = os.environ.get(name)
         if val is None or val.strip() == "":
             return default if default else None
         return val.strip()
-# Force update
-
-# Force update
-
-# Force update
-
-# Force update
-
-# Force update
