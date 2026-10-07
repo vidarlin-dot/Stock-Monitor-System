@@ -1,11 +1,11 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Update Taiwan_Stock sheet with QFII (外資) target prices from cnyes.
 
 Usage:
     python src/update_qfii_sheet.py
 """
 import sys; sys.stdout.reconfigure(encoding='utf-8')
-import os, json, re, logging
+import os, json, re, logging, time
 import pytz
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -20,7 +20,7 @@ def _get_service_account_credentials():
     from google.oauth2.service_account import Credentials
     SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
               "https://www.googleapis.com/auth/drive"]
-    
+
     # Try environment variable first
     sa_json = os.environ.get("GCP_SERVICE_ACCOUNT_JSON", "").strip()
     if sa_json:
@@ -28,7 +28,7 @@ def _get_service_account_credentials():
         sa_json = sa_json.lstrip(chr(0xfeff))
         creds_dict = json.loads(sa_json)
         return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    
+
     # Fallback to file
     _PROJECT_ROOT = os.path.dirname(_BASE)
     KEY_PATH = os.path.abspath(os.path.join(_PROJECT_ROOT, "..", "stock-monitor-502815-d2e7cdb6f0a2.json"))
@@ -36,7 +36,7 @@ def _get_service_account_credentials():
         with open(KEY_PATH, encoding="utf-8") as f:
             creds_dict = json.load(f)
         return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    
+
     raise ValueError("GCP_SERVICE_ACCOUNT_JSON not set and key file not found")
 
 SPREADSHEET_ID = "1Zy2eWaRT9lXcA42A_r1yGlVaxOOtYRPSVv5cp0C23hE"
@@ -51,6 +51,24 @@ def get_worksheet():
     credentials = _get_service_account_credentials()
     client = gspread.authorize(credentials)
     return client.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
+
+
+def _safe_update(ws, *args, **kwargs):
+    """Wrapper around ws.update() with exponential backoff for 429 rate limits."""
+    import gspread
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            return ws.update(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            if e.response is not None and e.response.status_code == 429:
+                wait = min(2 ** attempt, 30)
+                logger.warning("Sheets API rate limit (429). Retrying in %ds (attempt %d/%d)...",
+                               wait, attempt + 1, max_retries)
+                time.sleep(wait)
+            else:
+                raise
+    raise RuntimeError("Failed to update Google Sheets after {} retries".format(max_retries))
 
 
 def update_qfii_in_sheet():
@@ -105,12 +123,12 @@ def update_qfii_in_sheet():
 
     # Batch write QFII columns (K, L, M)
     if qfii_data:
-        ws.update("K2:M{}".format(len(all_rows)), qfii_data)
+        _safe_update(ws, "K2:M{}".format(len(all_rows)), qfii_data)
         logger.info("Wrote QFII data for %d rows", len(qfii_data))
 
     # Ensure 追蹤 column header exists
     if "追蹤" not in headers:
-        ws.update("B1", [["追蹤"]])
+        _safe_update(ws, "B1", [["追蹤"]])
         logger.info("Added 追蹤 column header")
 
     logger.info("Done.")
