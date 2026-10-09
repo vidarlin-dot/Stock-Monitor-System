@@ -2,7 +2,7 @@ name: Daily Taiwan Stock Monitor
 
 on:
   schedule:
-    - cron: '00 2 * * 1-5'
+    - cron: '30 0 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -16,6 +16,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install dependencies
         run: |
@@ -23,7 +25,9 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
           # mcporter (Exa search CLI) — used by analyst_target_scraper
-          npm install -g mcporter
+          if ! command -v mcporter &>/dev/null; then
+            npm install -g mcporter
+          fi
 
       - name: Set up Exa MCP server config
         run: |
