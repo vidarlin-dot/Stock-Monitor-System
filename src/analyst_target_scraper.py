@@ -386,6 +386,64 @@ def fetch_targets_for_watchlist(
 # Diff / promotion helper
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Analyst coverage count tracking
+# ---------------------------------------------------------------------------
+
+def _analyst_snapshot_path() -> str:
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "data")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "analyst_counts.json")
+
+
+def load_analyst_snapshot() -> Dict[str, int]:
+    """Return {ticker: analyst_count} from the previous run's snapshot."""
+    p = _analyst_snapshot_path()
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        return {k: int(v) for k, v in data.items()
+                if isinstance(v, (int, float))}
+    except Exception:
+        return {}
+
+
+def save_analyst_snapshot(counts: Dict[str, int]) -> None:
+    p = _analyst_snapshot_path()
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(counts, f, ensure_ascii=False, indent=2)
+        logger.info("Saved analyst count snapshot: %d entries", len(counts))
+    except Exception as exc:
+        logger.warning("Failed to save analyst count snapshot: %s", exc)
+
+
+def diff_analyst_counts(prev: Dict[str, int],
+                       curr: Dict[str, int],
+                       min_analysts: int = 3) -> Dict[str, Dict[str, Any]]:
+    """Return tickers where the number of tracking analysts increased.
+
+    A ticker qualifies when:
+      - prev count < curr count
+      - curr count >= min_analysts   (avoid noise on 1-2 analyst tickers)
+
+    Returns {ticker: {"prev": int, "curr": int, "delta": int}}
+    """
+    added: Dict[str, Dict[str, Any]] = {}
+    for ticker, n_curr in curr.items():
+        n_prev = prev.get(ticker, 0)
+        if n_curr > n_prev and n_curr >= min_analysts:
+            added[ticker] = {
+                "prev": n_prev,
+                "curr": n_curr,
+                "delta": n_curr - n_prev,
+            }
+    return added
+
+
 def diff_targets(prev: Dict[str, Dict[str, Any]],
                  curr: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Return tickers whose target price materially changed.

@@ -41,6 +41,9 @@ try:
         save_snapshot,
         diff_targets,
         merge_with_cnyes as merge_exa_cnyes,
+        load_analyst_snapshot,
+        save_analyst_snapshot,
+        diff_analyst_counts,
     )
     EXA_AVAILABLE = True
 except ImportError:
@@ -359,9 +362,11 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
                                watchlist: List[Dict[str, Any]],
                                qfii_data: Dict[str, Dict[str, Any]] = None,
                                cnyes_ratings: Dict[str, Dict[str, Any]] = None,
-                               exa_changes: Dict[str, Dict[str, Any]] = None) -> str:
+                               exa_changes: Dict[str, Dict[str, Any]] = None,
+                               analyst_added: Dict[str, Dict[str, Any]] = None) -> str:
     qfii_data = qfii_data or {}
     exa_changes = exa_changes or {}
+    analyst_added = analyst_added or {}
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
     prev_tw = now_tw - timedelta(days=1)
@@ -488,6 +493,20 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
                 )
         lines.append("")
 
+    # --- Live analyst coverage increase alert ---
+    if analyst_added:
+        lines.append("📈 法人追蹤人數增加")
+        for ticker, info in sorted(
+                analyst_added.items(),
+                key=lambda kv: kv[1]["delta"], reverse=True):
+            name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
+            n_prev = info["prev"]
+            n_curr = info["curr"]
+            delta = info["delta"]
+            lines.append(
+                f"  {name} ({ticker}) 追蹤法人 {n_prev} → {n_curr} 家（+{delta}）")
+        lines.append("")
+
     # Auto-promote stocks with target price changes (bypass focus score threshold)
     target_change_tickers = set()
     for ticker, qfii in qfii_data.items():
@@ -497,6 +516,10 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
             target_change_tickers.add(ticker)
     # Also promote any ticker whose exa-scraped target changed (from live news)
     for ticker, chg in exa_changes.items():
+        if ticker in all_scores:
+            target_change_tickers.add(ticker)
+    # Promote tickers whose analyst coverage count increased
+    for ticker in analyst_added:
         if ticker in all_scores:
             target_change_tickers.add(ticker)
     if target_change_tickers:
@@ -606,11 +629,27 @@ def main():
         # Merge exa into qfii_merged: cnyes wins, exa fills gaps
         qfii_merged = merge_exa_cnyes(qfii_merged, exa_results)
 
+    # --- Analyst coverage count tracking ---
+    analyst_added: Dict[str, Dict[str, Any]] = {}
+    if EXA_AVAILABLE:
+        curr_counts = {
+            t: sd.analysts for t, sd in stocks_data.items()
+            if sd.analysts > 0
+        }
+        prev_counts = load_analyst_snapshot()
+        analyst_added = diff_analyst_counts(prev_counts, curr_counts)
+        if analyst_added:
+            logger.info("Analyst count increased for %d tickers: %s",
+                        len(analyst_added),
+                        {t: v["delta"] for t, v in analyst_added.items()})
+        save_analyst_snapshot(curr_counts)
+
     report = build_taiwan_focus_report(
         stocks_data, watchlist,
         qfii_data=qfii_merged,
         cnyes_ratings=cnyes_ratings,
         exa_changes=exa_changes,
+        analyst_added=analyst_added,
     )
     print(report)
 

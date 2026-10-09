@@ -32,6 +32,9 @@ try:
         load_prev_snapshot,
         save_snapshot,
         diff_targets,
+        load_analyst_snapshot,
+        save_analyst_snapshot,
+        diff_analyst_counts,
     )
     EXA_AVAILABLE = True
 except ImportError:
@@ -103,7 +106,7 @@ def _build_stock_block(ticker, data, h, score_info):
     return chr(10).join(lines)
 
 
-def build_daily_report(holdings_data, exa_changes: dict = None):
+def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: dict = None):
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
 
@@ -144,16 +147,24 @@ def build_daily_report(holdings_data, exa_changes: dict = None):
 
     # Auto-promote tickers whose exa-scraped target price changed
     exa_changes = exa_changes or {}
+    analyst_added = analyst_added or {}
     exa_added = []
     for ticker, chg in exa_changes.items():
         if ticker not in [x[0] for x in qualified]:
             s = all_scores.get(ticker)
             if s:
                 exa_added.append((ticker, s))
-    if exa_added:
-        qualified = exa_added + qualified
+    # Also promote tickers whose analyst coverage count increased
+    analyst_added_tickers = [
+        (t, all_scores[t]) for t in analyst_added
+        if t in all_scores and t not in [x[0] for x in qualified]
+    ]
+    all_promoted = exa_added + analyst_added_tickers
+    if all_promoted:
+        qualified = all_promoted + qualified
         lines.append("")
-        lines.append("📢 法人目標價即時異動（新聞爬蟲）")
+        if exa_changes:
+            lines.append("📢 法人目標價即時異動（新聞爬蟲）")
         for ticker, chg in exa_changes.items():
             name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
             c = chg.get("curr", {})
@@ -174,6 +185,18 @@ def build_daily_report(holdings_data, exa_changes: dict = None):
                     f"{' (' + new_broker + ')' if new_broker else ''}"
                     f"（{new_date}）"
                 )
+        if analyst_added:
+            lines.append("")
+            lines.append("📈 法人追蹤人數增加")
+            for ticker, info in sorted(
+                    analyst_added.items(),
+                    key=lambda kv: kv[1]["delta"], reverse=True):
+                name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
+                n_prev = info["prev"]
+                n_curr = info["curr"]
+                delta = info["delta"]
+                lines.append(
+                    f"  {name} ({ticker}) 追蹤法人 {n_prev} → {n_curr} 家（+{delta}）")
 
     lines0 = [f"# 美股 AI 焦點股票 | {date_str}", ""]
     lines = lines0
@@ -246,6 +269,7 @@ def main():
 
     # --- Exa-based analyst target scraping ---
     exa_changes = {}
+    analyst_added = {}
     if EXA_AVAILABLE:
         logger.info("Fetching latest US analyst targets via exa...")
         exa_results = fetch_targets_for_watchlist(holdings, kind="us", limit=20)
@@ -255,8 +279,30 @@ def main():
             logger.info("Exa US diff: %d tickers", len(exa_changes))
             save_snapshot(exa_results)
 
+    # Generate report first (which fetches market data),
+    # then use its stocks_data to track analyst coverage counts.
     report_text, qualified_tickers, stocks_data, stock_info = build_daily_report(
-        holdings, exa_changes=exa_changes)
+        holdings, exa_changes=exa_changes, analyst_added=None)
+
+    # --- Analyst coverage count tracking ---
+    if EXA_AVAILABLE:
+        curr_counts = {
+            t: sd.analysts for t, sd in stocks_data.items()
+            if sd.analysts > 0
+        }
+        prev_counts = load_analyst_snapshot()
+        analyst_added = diff_analyst_counts(prev_counts, curr_counts)
+        if analyst_added:
+            logger.info("Analyst count increased for %d US tickers: %s",
+                        len(analyst_added),
+                        {t: v["delta"] for t, v in analyst_added.items()})
+        save_analyst_snapshot(curr_counts)
+        # Rebuild report with analyst_added so those tickers get promoted
+        if analyst_added:
+            report_text, qualified_tickers, stocks_data, stock_info = \
+                build_daily_report(
+                    holdings, exa_changes=exa_changes,
+                    analyst_added=analyst_added)
     print(report_text)
     update_sheet_focus_scores(manager, stocks_data, stock_info, qualified_tickers)
 
