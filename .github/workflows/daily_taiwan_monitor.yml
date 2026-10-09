@@ -24,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install chromium
-          # mcporter (Exa search CLI) — used by analyst_target_scraper
+          # mcporter (Exa search CLI)
           if ! command -v mcporter &>/dev/null; then
             npm install -g mcporter
           fi
