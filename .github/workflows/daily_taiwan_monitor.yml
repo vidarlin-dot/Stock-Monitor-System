@@ -22,10 +22,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install chromium
+          # mcporter (Exa search CLI) — used by analyst_target_scraper
+          npm install -g mcporter
+
+      - name: Set up Exa MCP server config
+        run: |
+          mkdir -p config
+          cat > config/mcporter.json <<EOF
+          {
+            "mcpServers": {
+              "exa": { "baseUrl": "https://mcp.exa.ai/mcp" }
+            }
+          }
+          EOF
 
       - name: Fetch QFII analyst ratings from cnyes
         run: |
           python src/fetch_cnyes.py
+
+      - name: Scrape latest analyst target prices (exa)
+        run: |
+          python src/analyst_target_scraper.py 6669 3017 2330 3443 8299 6515 2317 3037 2454 8069
+        continue-on-error: true
 
       - name: Update QFII data in Google Sheet
         env:

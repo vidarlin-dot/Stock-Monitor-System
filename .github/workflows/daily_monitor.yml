@@ -21,6 +21,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # mcporter (Exa search CLI) — used by analyst_target_scraper
+          npm install -g mcporter
+
+      - name: Set up Exa MCP server config
+        run: |
+          mkdir -p config
+          cat > config/mcporter.json <<EOF
+          {
+            "mcpServers": {
+              "exa": { "baseUrl": "https://mcp.exa.ai/mcp" }
+            }
+          }
+          EOF
 
       - name: Update Analyst Targets (Daily)
         env:

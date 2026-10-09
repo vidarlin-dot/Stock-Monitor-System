@@ -26,6 +26,16 @@ from us_market_data import (
     compute_focus_score,
     fetch_all_us_stock_data,
 )
+try:
+    from analyst_target_scraper import (
+        fetch_targets_for_watchlist,
+        load_prev_snapshot,
+        save_snapshot,
+        diff_targets,
+    )
+    EXA_AVAILABLE = True
+except ImportError:
+    EXA_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
@@ -93,7 +103,7 @@ def _build_stock_block(ticker, data, h, score_info):
     return chr(10).join(lines)
 
 
-def build_daily_report(holdings_data):
+def build_daily_report(holdings_data, exa_changes: dict = None):
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
 
@@ -132,7 +142,41 @@ def build_daily_report(holdings_data):
             auto_added.append((t, all_scores[t]))
     if auto_added: qualified = auto_added + qualified
 
-    lines = [f"# 美股 AI 焦點股票 | {date_str}", ""]
+    # Auto-promote tickers whose exa-scraped target price changed
+    exa_changes = exa_changes or {}
+    exa_added = []
+    for ticker, chg in exa_changes.items():
+        if ticker not in [x[0] for x in qualified]:
+            s = all_scores.get(ticker)
+            if s:
+                exa_added.append((ticker, s))
+    if exa_added:
+        qualified = exa_added + qualified
+        lines.append("")
+        lines.append("📢 法人目標價即時異動（新聞爬蟲）")
+        for ticker, chg in exa_changes.items():
+            name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
+            c = chg.get("curr", {})
+            p = chg.get("prev")
+            new_tgt = c.get("target", 0)
+            new_broker = c.get("broker", "")
+            new_date = c.get("date", "")
+            if p:
+                old_tgt = p.get("target", 0)
+                lines.append(
+                    f"  {name} ({ticker}) 目標價 ${old_tgt:.2f} → ${new_tgt:.2f}"
+                    f"{' (' + new_broker + ')' if new_broker else ''}"
+                    f"{'（' + chg.get('reason','') + '）' if chg.get('reason') else ''}"
+                )
+            else:
+                lines.append(
+                    f"  {name} ({ticker}) 新目標價 ${new_tgt:.2f}"
+                    f"{' (' + new_broker + ')' if new_broker else ''}"
+                    f"（{new_date}）"
+                )
+
+    lines0 = [f"# 美股 AI 焦點股票 | {date_str}", ""]
+    lines = lines0
     if qualified:
         for ticker, s in qualified[:MAX_FOCUS_STOCKS]:
             d = stock_info[ticker]["data"]
@@ -200,7 +244,19 @@ def main():
         sys.exit(0)
     logger.info("Processing %d US stock(s)...", len(holdings))
 
-    report_text, qualified_tickers, stocks_data, stock_info = build_daily_report(holdings)
+    # --- Exa-based analyst target scraping ---
+    exa_changes = {}
+    if EXA_AVAILABLE:
+        logger.info("Fetching latest US analyst targets via exa...")
+        exa_results = fetch_targets_for_watchlist(holdings, kind="us", limit=20)
+        if exa_results:
+            prev_snapshot = load_prev_snapshot()
+            exa_changes = diff_targets(prev_snapshot, exa_results)
+            logger.info("Exa US diff: %d tickers", len(exa_changes))
+            save_snapshot(exa_results)
+
+    report_text, qualified_tickers, stocks_data, stock_info = build_daily_report(
+        holdings, exa_changes=exa_changes)
     print(report_text)
     update_sheet_focus_scores(manager, stocks_data, stock_info, qualified_tickers)
 

@@ -34,6 +34,17 @@ from taiwan_market_data import (
     load_cnyes_ratings,
     merge_cnyes_into_data,
 )
+try:
+    from analyst_target_scraper import (
+        fetch_targets_for_watchlist,
+        load_prev_snapshot,
+        save_snapshot,
+        diff_targets,
+        merge_with_cnyes as merge_exa_cnyes,
+    )
+    EXA_AVAILABLE = True
+except ImportError:
+    EXA_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 TW_TZ = pytz.timezone("Asia/Taipei")
@@ -61,6 +72,26 @@ def _fmt_pct(val: float) -> str:
         return "0.00%"
     sign = "+" if val > 0 else ""
     return f"{sign}{val:.2f}%"
+
+
+def _safe_truncate(text: str, max_len: int) -> str:
+    """Truncate text at a sentence boundary when possible, avoiding mid-char cuts."""
+    if len(text) <= max_len:
+        return text
+    # Search backward from max_len for a safe break point
+    for delim in ("。", "；", "，", "、", ".", ";", ",", " ", "\n", "）"):
+        pos = text.rfind(delim, 0, max_len)
+        if pos > max_len * 0.5:  # require at least halfway for meaningful truncation
+            return text[:pos + 1].strip()
+    # Fallback: hard truncate but strip trailing whitespace
+    return text[:max_len].rstrip()
+
+
+def _effective_target(data: StockMarketData) -> float:
+    """Return the authoritative target price: QFII first, then Yahoo mean."""
+    if data.qfii_target > 0:
+        return data.qfii_target
+    return data.mean_target
 
 
 def _build_focus_detail(ticker: str, data: StockMarketData,
@@ -200,12 +231,16 @@ def _extract_bull_factors(data: StockMarketData, score_info: Dict[str, Any],
     elif price > data.close_5d:
         factors.append("股價站上新鮮 MA5，短線偏強")
 
-    if data.avg_volume_20d > 0 and data.volume > data.avg_volume_20d * 1.5:
-        factors.append(f"成交量放大至 20 日均量 {data.volume/data.avg_volume_20d:.1f} 倍，籌碼活絡")
+    # Bug 5 fix: heavy volume with price drop = distribution warning (not bullish)
+    vol_ratio = data.volume / data.avg_volume_20d if data.avg_volume_20d > 0 else 0
+    if vol_ratio > 1.5 and data.day_change_pct < -3:
+        factors.append(f"爆量下跌：成交量放大至 {vol_ratio:.1f} 倍但單日下跌 {data.day_change_pct:.1f}%，注意籌碼出脫")
+    elif vol_ratio > 1.5:
+        factors.append(f"成交量放大至 20 日均量 {vol_ratio:.1f} 倍，籌碼活絡")
 
     notes = str(h.get("備註", "")).strip()
     if notes and len(notes) > 3:
-        factors.append(notes[:30])
+        factors.append(_safe_truncate(notes, 30))
 
     if data.earnings_history:
         latest = data.earnings_history[0]
@@ -218,7 +253,8 @@ def _extract_bull_factors(data: StockMarketData, score_info: Dict[str, Any],
 def _extract_bear_factors(data: StockMarketData, score_info: Dict[str, Any]) -> List[str]:
     factors = []
     price = data.current_price
-    target = data.mean_target
+    # Bug 1 & 2 fix: use QFII target as authoritative when available
+    target = _effective_target(data)
     change = data.day_change_pct
     rp = score_info["risk_penalty"]
 
@@ -248,6 +284,12 @@ def _extract_bear_factors(data: StockMarketData, score_info: Dict[str, Any]) -> 
     if change < -5:
         factors.append(f"單日大跌 {change:.1f}%，確認支撐再進場")
 
+    # Bug 5 fix: heavy volume with significant drop = distribution warning
+    avg_vol = data.avg_volume_20d
+    if avg_vol > 0 and data.volume > avg_vol * 1.5 and change < -5:
+        vol_ratio = data.volume / avg_vol
+        factors.append(f"爆量跌停訊號：成交量放大至 {vol_ratio:.1f} 倍且單日大跌 {change:.1f}%，主力出貨風險高")
+
     return factors
 
 
@@ -273,7 +315,7 @@ def _extract_recent_events(data: StockMarketData, h: Dict[str, Any]) -> List[str
 
     notes = str(h.get("備註", "")).strip()
     if notes:
-        events.append(notes[:25])
+        events.append(_safe_truncate(notes, 25))
 
     return events
 
@@ -316,8 +358,10 @@ def _get_operation_suggestion(data: StockMarketData, score_info: Dict[str, Any],
 def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
                                watchlist: List[Dict[str, Any]],
                                qfii_data: Dict[str, Dict[str, Any]] = None,
-                               cnyes_ratings: Dict[str, Dict[str, Any]] = None) -> str:
+                               cnyes_ratings: Dict[str, Dict[str, Any]] = None,
+                               exa_changes: Dict[str, Dict[str, Any]] = None) -> str:
     qfii_data = qfii_data or {}
+    exa_changes = exa_changes or {}
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
     prev_tw = now_tw - timedelta(days=1)
@@ -418,12 +462,42 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
             lines.append(alert)
         lines.append("")
 
+    # Live exa-scraped target changes (from today's news)
+    if exa_changes:
+        lines.append("📢 法人目標價即時異動（新聞爬蟲）")
+        for ticker, chg in exa_changes.items():
+            name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
+            c = chg["curr"]
+            p = chg.get("prev")
+            new_tgt = c.get("target", 0)
+            new_broker = c.get("broker", "")
+            new_date = c.get("date", "")
+            if p:
+                old_tgt = p.get("target", 0)
+                reason = chg.get("reason", "")
+                lines.append(
+                    f"  {name} ({ticker}) 目標價 {old_tgt:.0f} → {new_tgt:.0f}"
+                    f"{' (' + new_broker + ')' if new_broker else ''}"
+                    f" {'（' + reason + '）' if reason else ''}"
+                )
+            else:
+                lines.append(
+                    f"  {name} ({ticker}) 新目標價 {new_tgt:.0f}"
+                    f"{' (' + new_broker + ')' if new_broker else ''}"
+                    f"（{new_date}）"
+                )
+        lines.append("")
+
     # Auto-promote stocks with target price changes (bypass focus score threshold)
     target_change_tickers = set()
     for ticker, qfii in qfii_data.items():
         target = qfii.get("qfii_target", 0)
         prev_tgt = prev_targets.get(ticker, 0)
         if prev_tgt > 0 and abs(target - prev_tgt) > 0.01 and ticker in all_scores:
+            target_change_tickers.add(ticker)
+    # Also promote any ticker whose exa-scraped target changed (from live news)
+    for ticker, chg in exa_changes.items():
+        if ticker in all_scores:
             target_change_tickers.add(ticker)
     if target_change_tickers:
         existing = [(t, s) for t, s in qualified if t not in target_change_tickers]
@@ -518,7 +592,26 @@ def main():
             logger.error("No stock data available, aborting.")
             sys.exit(1)
 
-    report = build_taiwan_focus_report(stocks_data, watchlist, qfii_data=qfii_merged, cnyes_ratings=cnyes_ratings)
+    # --- Exa-based analyst target scraping ---
+    exa_changes: Dict[str, Dict[str, Any]] = {}
+    if EXA_AVAILABLE:
+        logger.info("Fetching latest analyst targets via exa...")
+        exa_results = fetch_targets_for_watchlist(watchlist, kind="tw", limit=15)
+        if exa_results:
+            prev_snapshot = load_prev_snapshot()
+            exa_changes = diff_targets(prev_snapshot, exa_results)
+            logger.info("Exa diff: %d tickers with target change", len(exa_changes))
+            # Save new snapshot for next run
+            save_snapshot(exa_results)
+        # Merge exa into qfii_merged: cnyes wins, exa fills gaps
+        qfii_merged = merge_exa_cnyes(qfii_merged, exa_results)
+
+    report = build_taiwan_focus_report(
+        stocks_data, watchlist,
+        qfii_data=qfii_merged,
+        cnyes_ratings=cnyes_ratings,
+        exa_changes=exa_changes,
+    )
     print(report)
 
     notifier = LineNotifier()
@@ -539,11 +632,20 @@ def _send_report_chunks(notifier, message: str, max_length: int = 4800) -> None:
                 end = min(start + max_length, len(line))
                 # Search backward for a safe break point at punctuation
                 break_at = end
-                for delim in (" ", "，", "。", "；", "、", "|", "）", "」"):
+                for delim in (" ", "，", "。", "；", "、", "|", "）", "」", "\n"):
                     pos = line.rfind(delim, start, end)
                     if pos > start:
                         break_at = pos
                         break
+                # Bug 3 fix: if no delimiter found, look for any whitespace/punct
+                # to avoid mid-word CJK splits
+                if break_at == end:
+                    seg = line[start:end]
+                    for delim in (" ", "，", "。", "；", "、", "|", "）", "」", "\n", "-"):
+                        pos = seg.rfind(delim)
+                        if pos > 0:
+                            break_at = start + pos
+                            break
                 wrapped_lines.append(line[start:break_at])
                 start = break_at if break_at == end else break_at + 1
         else:
