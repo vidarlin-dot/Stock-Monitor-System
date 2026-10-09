@@ -2,9 +2,9 @@ name: Monthly Analyst Targets Update
 
 on:
   schedule:
-    # L = last day of every month; 15:30 UTC+8 (Taipei) = 07:30 UTC
+    # First day of each month; 15:30 UTC+8 (Taipei) = 07:30 UTC
     # GitHub cron is in UTC; 15:30 UTC+8 = 07:30 UTC
-    - cron: "30 7 L * *"
+    - cron: "30 7 1 * *"
   workflow_dispatch:
 
 jobs:

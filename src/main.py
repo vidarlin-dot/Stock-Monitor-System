@@ -160,6 +160,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
         if t in all_scores and t not in [x[0] for x in qualified]
     ]
     all_promoted = exa_added + analyst_added_tickers
+    lines = [f"# 美股 AI 焦點股票 | {date_str}", ""]
     if all_promoted:
         qualified = all_promoted + qualified
         lines.append("")
@@ -198,8 +199,6 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                 lines.append(
                     f"  {name} ({ticker}) 追蹤法人 {n_prev} → {n_curr} 家（+{delta}）")
 
-    lines0 = [f"# 美股 AI 焦點股票 | {date_str}", ""]
-    lines = lines0
     if qualified:
         for ticker, s in qualified[:MAX_FOCUS_STOCKS]:
             d = stock_info[ticker]["data"]
