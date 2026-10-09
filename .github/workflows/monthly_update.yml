@@ -2,13 +2,16 @@ name: Monthly Analyst Targets Update
 
 on:
   schedule:
-    # Runs on days 28-31; Python checks is_last_day_of_month() to skip non-final days
-    - cron: '30 15 28-31 * *'
+    # L = last day of every month; 15:30 UTC+8 (Taipei) = 07:30 UTC
+    # GitHub cron is in UTC; 15:30 UTC+8 = 07:30 UTC
+    - cron: "30 7 L * *"
   workflow_dispatch:
 
 jobs:
   monthly-update-targets:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,10 +25,168 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # mcporter (Exa search CLI) — needed by analyst_target_scraper
+          npm install -g mcporter
 
-      - name: Run Monthly Target Update
+      - name: Set up Exa MCP server config
+        run: |
+          mkdir -p config
+          cat > config/mcporter.json <<EOF
+          {
+            "mcpServers": {
+              "exa": { "baseUrl": "https://mcp.exa.ai/mcp" }
+            }
+          }
+          EOF
+
+      # ------------------------------------------------------------------
+      # Phase 1: Reset exa / analyst-count snapshots so daily monitors
+      # start from a clean baseline on the first day of the new month.
+      # ------------------------------------------------------------------
+      - name: Reset exa target-price snapshot
+        run: |
+          python - <<EOF
+          import json, os
+          p = os.path.join("data", "analyst_targets.json")
+          if os.path.exists(p):
+              with open(p) as f:
+                  old = json.load(f)
+              print(f"Backing up {len(old)} exa target entries to .bak")
+              with open(p + ".bak", "w") as f:
+                  json.dump(old, f, ensure_ascii=False, indent=2)
+              # Clear the live snapshot so tomorrow''s diff sees everything as "new"
+              with open(p, "w") as f:
+                  json.dump({}, f, ensure_ascii=False, indent=2)
+          else:
+              print("No existing exa snapshot; nothing to reset")
+          EOF
+
+      - name: Reset analyst-coverage snapshot
+        run: |
+          python - <<EOF
+          import json, os
+          p = os.path.join("data", "analyst_counts.json")
+          if os.path.exists(p):
+              with open(p) as f:
+                  old = json.load(f)
+              print(f"Backing up {len(old)} analyst-count entries to .bak")
+              with open(p + ".bak", "w") as f:
+                  json.dump(old, f, ensure_ascii=False, indent=2)
+              with open(p, "w") as f:
+                  json.dump({}, f, ensure_ascii=False, indent=2)
+          else:
+              print("No existing analyst-count snapshot; nothing to reset")
+          EOF
+
+      # ------------------------------------------------------------------
+      # Phase 2: yfinance target-price / zone refresh (existing logic)
+      # ------------------------------------------------------------------
+      - name: Fetch fresh yfinance targets (pre-reset)
+        id: yfinance
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          MONTHLY_FORCE: "1"   # cron 'L' already guarantees last-day; skip Python guard
+        run: |
+          python src/update_analyst_targets.py 2> yfinance_errors.log
+        continue-on-error: true
+
+      - name: Log yfinance errors (if any)
+        if: always()
+        run: |
+          if [ -f yfinance_errors.log ] && [ -s yfinance_errors.log ]; then
+            echo "::group::yfinance errors"
+            cat yfinance_errors.log
+            echo "::endgroup::"
+          fi
+
+      # ------------------------------------------------------------------
+      # Phase 3: Exa-based supplementary target scrape (best-effort)
+      # Runs AFTER yfinance so we can diff exa results against the
+      # freshly-saved analyst_targets.json baseline.
+      # ------------------------------------------------------------------
+      - name: Exa supplementary target scrape (TW)
+        run: |
+          python src/analyst_target_scraper.py \
+            6669 3017 2330 3443 8299 6515 2317 3037 2454 8069 2449 1717 2344 3036 3211
+        continue-on-error: true
+
+      - name: Exa supplementary target scrape (US)
+        run: |
+          python src/analyst_target_scraper.py --us \
+            NVDA AAPL MSFT AMD TSM MU 300.F AVGO INTC QCOM
+        continue-on-error: true
+
+      # ------------------------------------------------------------------
+      # Phase 4: Google Sheets write-back (zones + QFII)
+      # Separate job-like step so credential errors are isolated.
+      # ------------------------------------------------------------------
+      - name: Update Google Sheet (Taiwan zones + QFII)
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
           SHEET_NAME: ${{ secrets.SHEET_NAME }}
         run: |
-          python src/update_analyst_targets.py
+          python src/update_qfii_sheet.py
+          python src/update_taiwan_prices.py
+        continue-on-error: true
+
+      # ------------------------------------------------------------------
+      # Phase 5: Commit snapshot changes so CI history is preserved
+      # ------------------------------------------------------------------
+      - name: Commit updated snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/analyst_targets.json data/analyst_counts.json
+          # Also commit .bak files if they exist (audit trail)
+          git add data/*.bak 2>/dev/null || true
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "chore: monthly snapshot reset + yfinance/exa refresh [${{ github.run_number }}]"
+            git push
+          else:
+            echo "No snapshot changes to commit"
+
+      # ------------------------------------------------------------------
+      # Phase 6: LINE notification
+      # ------------------------------------------------------------------
+      - name: Send LINE summary
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+        run: |
+          python - <<EOF
+          import json, logging, sys
+          sys.path.insert(0, "src")
+          logging.basicConfig(level=logging.INFO)
+          from line_notifier import LineNotifier
+
+          n = LineNotifier()
+          if not n.token:
+              print("LINE_CHANNEL_ACCESS_TOKEN not set; skipping notification")
+              sys.exit(0)
+
+          # Load snapshots for the summary
+          def load(p):
+              try:
+                  with open(p, encoding="utf-8") as f:
+                      return json.load(f)
+              except Exception:
+                  return {}
+
+          exa_bak = load("data/analyst_targets.json.bak")
+          exa_new = load("data/analyst_targets.json")
+          cnt_bak = load("data/analyst_counts.json.bak")
+          cnt_new = load("data/analyst_counts.json")
+
+          lines = [
+              "📊 月度目標價更新完成",
+              "",
+              f"Exa 目標價：舊 {len(exa_bak)} 筆 → 新 {len(exa_new)} 筆",
+              f"法人追蹤數：舊 {len(cnt_bak)} 筆 → 新 {len(cnt_new)} 筆",
+              "",
+              "詳細異動請見 GitHub Actions 日志。",
+          ]
+          msg = "\n".join(lines)
+          n.send_push_message(msg)
+          print("LINE notification sent.")
+          EOF
+        continue-on-error: true

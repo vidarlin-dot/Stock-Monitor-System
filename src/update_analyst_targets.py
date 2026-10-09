@@ -1,6 +1,11 @@
 """Monthly update of analyst targets in Google Sheets.
-Runs on last day of month to fetch latest yfinance analyst data
-and update buy/sell zones and generate analyst summary notes.
+
+Fetches latest yfinance analyst data and updates buy/sell zones +
+analyst summary notes in Google Sheets.
+
+The cron in .github/workflows/monthly_update.yml uses 'L' (last day)
+so this script no longer needs to self-guard with is_last_day_of_month.
+When run locally, it always processes; the caller decides frequency.
 """
 
 from __future__ import annotations
@@ -22,7 +27,15 @@ TW_TZ = pytz.timezone('Asia/Taipei')
 
 
 def is_last_day_of_month() -> bool:
-    """Check if today is the last day of the current month (Taipei timezone)."""
+    """Check if today is the last day of the current month (Taipei timezone).
+
+    Override: set env var MONTHLY_FORCE=1 to force processing regardless
+    of date (useful for testing and when GitHub cron already guarantees
+    the last-day context via the 'L' cron expression).
+    """
+    import os
+    if os.environ.get("MONTHLY_FORCE") == "1":
+        return True
     now_tw = datetime.now(TW_TZ)
     import calendar
     _, last_day = calendar.monthrange(now_tw.year, now_tw.month)
