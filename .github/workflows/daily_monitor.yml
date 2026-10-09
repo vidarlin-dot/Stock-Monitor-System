@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '00 23 * * 1-5'
   workflow_dispatch:
+    inputs:
+      skip_exa:
+        description: 'Skip exa target scrape (faster run)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   daily-monitor:

@@ -122,3 +122,42 @@ python tests/test_mock_report.py
 This will show a sample report preview with mock data.
 
 ---
+
+
+## 外部排程觸發（降低 GitHub scheduler 延遲）
+
+GitHub Actions 的 `schedule` 觸發在高負載時可能延遲 30 分鐘以上。
+若需精確排程，可用 [Cron-job.org](https://cron-job.org)（免費）
+在指定時間觸發 `workflow_dispatch`：
+
+### 設定步驟
+
+1. 建立一個 Personal Access Token（PAT），權限：`repo`
+2. 在 GitHub repo **Settings → Secrets** 加入：
+   - `GITHUB_PAT` = 該 PAT 值
+3. 到 [cron-job.org](https://cron-job.org) 建立 cron job：
+
+   **TW monitor**（每日 00:30 UTC = 08:30 台北）：
+   ```
+   時間：30 0 * * 1-5
+   指令：curl -s -X POST \
+     "https://api.github.com/repos/vidarlin-dot/Stock-Monitor-System/actions/workflows/daily_taiwan_monitor.yml/dispatches" \
+     -H "Authorization: token <你的GITHUB_PAT>" \
+     -H "Content-Type: application/json" \
+     -d '"{\"ref\": \"main\"}"'
+   ```
+
+   **US monitor**（每日 23:00 UTC = 07:00 台北）：
+   ```
+   時間：00 23 * * 1-5
+   指令：curl -s -X POST \
+     "https://api.github.com/repos/vidarlin-dot/Stock-Monitor-System/actions/workflows/daily_monitor.yml/dispatches" \
+     -H "Authorization: token <你的GITHUB_PAT>" \
+     -H "Content-Type: application/json" \
+     -d '"{\"ref\": \"main\"}"'
+   ```
+
+### 停用 GitHub 原生 schedule（避免雙重觸發）
+
+若要改用外部排程，從 `daily_monitor.yml` 和 `daily_taiwan_monitor.yml`
+移除 `on: schedule` 區塊，只保留 `workflow_dispatch`。
