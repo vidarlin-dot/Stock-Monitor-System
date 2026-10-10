@@ -325,3 +325,47 @@ def weekend_note() -> str:
             f" 數據截至 {last_friday.strftime('%Y-%m-%d')} 美股收盤（週六版為回顧＋下週觀察）。"
         )
     return ""
+
+
+def is_us_trading_day() -> bool:
+    """Return True if today is a US trading day (Mon-Fri, not a major market holiday)."""
+    now = datetime.now(TZ)
+    if now.weekday() >= 5:
+        return False
+    year = now.year
+    today = datetime(year, now.month, now.day)
+    import calendar
+
+    def _nth_weekday(month, weekday, n):
+        """n-th weekday (0=Mon) of month in year; weekday is 0-based."""
+        from datetime import timedelta
+        day = datetime(year, month, 1)
+        count = 0
+        while day.month == month:
+            if day.weekday() == weekday:
+                count += 1
+                if count == n:
+                    return day
+            day += timedelta(days=1)
+        return None
+
+    holidays = set()
+    holidays.add(datetime(year, 1, 1))
+    mlk = _nth_weekday(1, 0, 3)        # 3rd Monday Jan (MLK)
+    pres = _nth_weekday(2, 0, 3)       # 3rd Monday Feb (Presidents)
+    mem = _nth_weekday(5, 0, 5)        # last Monday May (Memorial)
+    # Memorial Day is the LAST Monday of May; May has 4 or 5 Mondays.
+    # _nth_weekday(n) returns the n-th occurrence; try 5th then 4th.
+    if mem is None:
+        mem = _nth_weekday(5, 0, 4)
+    labor = _nth_weekday(9, 0, 1)      # 1st Monday Sep (Labor)
+    thank = _nth_weekday(11, 3, 4)     # 4th Thursday Nov (Thanksgiving)
+    for h in (mlk, pres, mem, labor, thank):
+        if h: holidays.add(h)
+    holidays.add(datetime(year, 7, 4))
+    holidays.add(datetime(year, 12, 25))
+
+    if today in holidays:
+        logger.info("US market holiday: %s", today.strftime('%Y-%m-%d'))
+        return False
+    return True

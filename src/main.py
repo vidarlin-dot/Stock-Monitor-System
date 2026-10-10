@@ -28,6 +28,7 @@ from us_market_context import (
     scenario_lines,
     weekend_note,
     top_analyst_lines,
+    is_us_trading_day,
 )
 from us_market_data import (
     StockMarketData,
@@ -508,6 +509,14 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     logger.info("US Stock FocusScore Report starting...")
+
+    # Skip non-trading days (weekends + US market holidays)
+    if not is_us_trading_day():
+        date_str = datetime.now(TZ).strftime("%Y-%m-%d (%a)")
+        print(f"# \u7f8e\u80a1 AI \u7121\u9ede\u7121\u80a1 | {date_str}\n\n\u26a0\ufe0f \u6ce8\uff1a\u4eca\u65e5\u7f8e\u80a1\u4f11\u5e02\uff0c\u4eca\u65e5\u4e0d\u6d3e\u767f\u3002")
+        logger.info("US market is closed today, skipping report.")
+        sys.exit(0)
+
     manager = GoogleSheetsManager()
     data = manager.load_config()
     holdings = data["holdings"]
