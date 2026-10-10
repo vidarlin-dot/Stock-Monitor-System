@@ -563,14 +563,10 @@ def build_taiwan_focus_report(stocks_data, watchlist,
                 f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）")
         lines.append("")
 
-    # Section 二：選股狀態
-    lines.append("## 二、選股狀態總覽")
+    # Section 二：選股狀態（純文字圖標版）
+    lines.append("## 二、選股狀態")
     lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
     lines.append("")
-    lines.append(
-        "| 代號 | 收盤 | 日% | 相對大盤 | 狀態 | 支撐 | 壓力 | "
-        "目標價(Factset) | 催化/風險 | 情境 |")
-    lines.append("|---|---:|---:|---:|---|---:|---:|---:|---|---|")
 
     target_change_tickers: set = set()
     for ticker, qfii in qfii_data.items():
@@ -591,12 +587,16 @@ def build_taiwan_focus_report(stocks_data, watchlist,
 
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
     if not display_tickers:
-        lines.append("| — | — | — | — | — | — | — | — | — | — |")
+        lines.append("今日無符合條件的焦點股。")
+
+    twse_item = ctx.get("items", {}).get("TWSE", {})
+    twse_chg = twse_item.get("day_change_pct", 0)
 
     for ticker in display_tickers:
         d = stock_info[ticker]["data"]
         h = stock_info[ticker]["h"]
         qfii = qfii_data.get(ticker, {})
+        short_name = str(h.get("短名", "")).strip() or ticker
         price = d.current_price
         chg = d.day_change_pct
         status = _tw_status_for_stock(d)
@@ -613,23 +613,67 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         sup_band = f"{sup_lo:,.0f}～{sup_hi:,.0f}" if sup_lo and sup_hi else "N/A"
         res_band = f"{res_lo:,.0f}～{res_hi:,.0f}" if res_lo and res_hi else "N/A"
 
-        # Target: single source of truth = QFII/Factset
+        # Single source of truth: QFII/Factset
         qfii_target = qfii.get("qfii_target", 0)
-        target_disp = ""
+        target_line = ""
+        target_gap_note = ""
         if qfii_target > 0:
             gap_pct = (qfii_target - price) / price * 100 if price > 0 else 0
             long_note = "（長期參考）" if gap_pct > 50 else ""
-            target_disp = f"{qfii_target:,.0f}{long_note}"
+            target_line = f"🎯 目標價（Factset）：{qfii_target:,.0f} 元（{gap_pct:+.1f}%）{long_note}"
+            if price > qfii_target:
+                over_pct = (price / qfii_target - 1) * 100
+                target_gap_note = f"｜⚠️ 已高於目標價 {over_pct:.0f}%"
 
+        rec_label = d.rec_label or ""
+        analysts_str = f"{d.analysts}家" if d.analysts > 0 else "待確認"
+        analyst_line = f"📝 分析師：{rec_label}（{analysts_str}）" if rec_label else f"📝 分析師：{analysts_str}"
+
+        # Sentiment override when QFII target < price by >10%
+        sentiment = "偏多"
+        if qfii_target > 0 and price > 0:
+            qfii_upside = (qfii_target - price) / price * 100
+            if qfii_upside < -10:
+                sentiment = "偏空（現價已領先目標價）"
+
+        # Bull / bear factors (compact, scenario-based)
+        bull_parts = []
+        bear_parts = []
+        vol_ratio = d.volume / d.avg_volume_20d if d.avg_volume_20d > 0 else 0
+        if qfii_target > price and gap_pct > 5:
+            bull_parts.append(f"目標價上行空間 {gap_pct:.0f}%")
+        if vol_ratio > 1.5 and d.day_change_pct < -3:
+            bear_parts.append(f"爆量下跌：量放大 {vol_ratio:.1f} 倍但跌 {d.day_change_pct:.1f}%，注意籌碼出脫")
+        elif vol_ratio < 0.7:
+            bear_parts.append(f"量縮至 {vol_ratio:.1f} 倍，動能不足")
         notes = str(h.get("備註", "")).strip()
-        catalyst = notes[:25] if notes else "—"
-        twse_item = ctx.get("items", {}).get("TWSE", {})
-        twse_chg = twse_item.get("day_change_pct", 0)
-        rel = chg - twse_chg if twse_chg else 0
-        rel_str = f"{rel:+.1f}%" if twse_chg else "—"
-        lines.append(
-            f"| {ticker} | {price:,.0f} | {chg:+.1f}% | {rel_str} | {status} "
-            f"| {sup_band} | {res_band} | {target_disp} | {catalyst} | {scenario} |")
+        if notes:
+            bull_parts.append(notes[:30])
+
+        lines.append(f"\n📊 {ticker} {short_name}")
+        lines.append(f"📈 當前價：{price:,.0f} 元（{chg:+.1f}%）")
+        lines.append(f"⬆️ 支撐區：{sup_band} 元")
+        lines.append(f"⬇️ 壓力區：{res_band} 元")
+        if target_line:
+            lines.append(target_line + target_gap_note)
+        lines.append(analyst_line)
+        lines.append(f"💬 市場情緒：{sentiment}")
+        if bull_parts:
+            lines.append(f"🟢 利多：{'; '.join(bull_parts[:3])}")
+        if bear_parts:
+            lines.append(f"🔴 利空：{'; '.join(bear_parts[:3])}")
+        # Earnings date (only future)
+        if d.earnings_date:
+            try:
+                from datetime import datetime as _dt
+                earn_dt = _dt.strptime(str(d.earnings_date), "%Y-%m-%d")
+                if earn_dt >= _dt.now(TW_TZ).replace(tzinfo=None):
+                    lines.append(f"📅 財報：{d.earnings_date}")
+                else:
+                    lines.append(f"📅 財報：{d.earnings_date}（已過，追蹤後續）")
+            except (ValueError, TypeError):
+                lines.append(f"📅 財報：{d.earnings_date}")
+        lines.append(f"⚡ 情境：{scenario}")
 
     lines.append("")
     lines.append("目標價以 Factset（QFII）為準；新聞爬蟲目標價僅供輔助參考。")

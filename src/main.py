@@ -265,60 +265,85 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     lines.append(f"氛圍結論：{get_mood_label(ctx)}")
     lines.append("")
 
-    # --- Section 二：選股狀態總覽 ---
-    lines.append("## 二、選股狀態總覽")
+    # --- Section 二：選股狀態（純文字圖標版） ---
+    lines.append("## 二、選股狀態")
     lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
     lines.append("")
 
-    # Table header
-    lines.append(
-        "| 代號 | 現價 | 日% | 分析師覆蓋 | 狀態 | 支撐 | 壓力 | 財報日 | 催化/風險 | 情境 |"
-    )
-    lines.append("|---|---:|---:|---:|---|---:|---:|---|---|---|")
-
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
     if not display_tickers:
-        lines.append("| — | — | — | — | — | — | — | — | — | — |")
+        lines.append("今日無符合條件的焦點股。")
 
     for ticker in display_tickers:
         d = stock_info[ticker]["data"]
         h = stock_info[ticker]["h"]
         score = stock_info[ticker]["score"]
+        short_name = str(h.get("短名", "")).strip() or ticker
         price = d.current_price
         chg   = d.day_change_pct
         status = _status_for_stock(d)
-        # support / resistance bands
+        scenario = _scenario_for_stock(d)
+
         sup_lo = d.low_20d
         sup_hi = round(d.close_20d * 0.97, 2) if d.close_20d else 0
         res_lo = round(d.high_20d * 0.98, 2)
         res_hi = d.high_20d
-        # ensure low < high
         if sup_lo and sup_hi and sup_lo > sup_hi:
             sup_lo, sup_hi = sup_hi, sup_lo
         if res_lo and res_hi and res_lo > res_hi:
             res_lo, res_hi = res_hi, res_lo
         sup_band = f"{sup_lo:,.2f}～{sup_hi:,.2f}" if sup_lo and sup_hi else "N/A"
         res_band = f"{res_lo:,.2f}～{res_hi:,.2f}" if res_lo and res_hi else "N/A"
-        # analyst count (hide 0)
+
         n_analysts = d.analysts
         analyst_str = str(n_analysts) if n_analysts > 0 else "待確認"
-        # target price context
+
         target = d.mean_target
-        target_note = ""
+        target_line = ""
+        target_gap_note = ""
         if target > 0 and price > 0:
             gap_pct = (target - price) / price * 100
-            if gap_pct > 50:
-                target_note = "（長期參考）"
-        # catalyst / risk from holdings notes
-        cat   = score.get("category", "")
-        risk  = str(h.get("notes", "")).strip() or cat
-        earnings = str(d.earnings_date or "").strip()
-        scenario = _scenario_for_stock(d, target)
-        lines.append(
-            f"| {ticker} | {price:,.2f} | {chg:+.2f}% | {analyst_str} "
-            f"| {status} | {sup_band} | {res_band}{target_note} "
-            f"| {earnings} | {risk[:30]} | {scenario} |"
-        )
+            long_note = "（長期參考）" if gap_pct > 50 else ""
+            target_line = f"🎯 目標價：${target:,.2f}（{gap_pct:+.1f}%）{long_note}"
+            if price > target:
+                over_pct = (price / target - 1) * 100
+                target_gap_note = f"｜⚠️ 已高於目標價 {over_pct:.0f}%"
+
+        rec_label = d.rec_label or ""
+        analyst_line = f"📝 分析師：{rec_label}（{analyst_str}家）" if rec_label else f"📝 分析師：{analyst_str}家"
+
+        sentiment = score.get("category", "中性")
+        if target > 0 and price > 0 and price > target * 1.1:
+            sentiment = "偏空（現價已領先目標價）"
+
+        bull_parts = []
+        bear_parts = []
+        vol_ratio = d.volume / d.avg_volume_20d if d.avg_volume_20d > 0 else 0
+        if target > price and gap_pct > 5:
+            bull_parts.append(f"目標價上行空間 {gap_pct:.0f}%")
+        if vol_ratio > 1.5 and d.day_change_pct < -3:
+            bear_parts.append(f"爆量下跌：量放大 {vol_ratio:.1f} 倍但跌 {d.day_change_pct:.1f}%，注意籌碼出脫")
+        elif vol_ratio < 0.7:
+            bear_parts.append(f"量縮至 {vol_ratio:.1f} 倍，動能不足")
+        notes = str(h.get("notes", "")).strip()
+        if notes:
+            bull_parts.append(notes[:30])
+
+        lines.append(f"\n📊 {ticker} {short_name}")
+        lines.append(f"📈 當前價：${price:,.2f}（{chg:+.1f}%）")
+        lines.append(f"⬆️ 支撐區：${sup_band}")
+        lines.append(f"⬇️ 壓力區：${res_band}")
+        if target_line:
+            lines.append(target_line + target_gap_note)
+        lines.append(analyst_line)
+        lines.append(f"💬 市場情緒：{sentiment}")
+        if bull_parts:
+            lines.append(f"🟢 利多：{'; '.join(bull_parts[:3])}")
+        if bear_parts:
+            lines.append(f"🔴 利空：{'; '.join(bear_parts[:3])}")
+        if d.earnings_date:
+            lines.append(f"📅 財報：{d.earnings_date}")
+        lines.append(f"⚡ 情境：{scenario}")
 
     lines.append("")
     lines.append("分析師覆蓋僅供參考，不顯示 0→N 變化。")
