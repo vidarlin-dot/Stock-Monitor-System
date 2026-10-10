@@ -593,6 +593,8 @@ def build_taiwan_focus_report(stocks_data, watchlist,
     twse_chg = twse_item.get("day_change_pct", 0)
 
     for ticker in display_tickers:
+        if ticker not in stock_info:
+            continue
         d = stock_info[ticker]["data"]
         h = stock_info[ticker]["h"]
         qfii = qfii_data.get(ticker, {})

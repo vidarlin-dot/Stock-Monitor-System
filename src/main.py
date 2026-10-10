@@ -273,8 +273,27 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
     if not display_tickers:
         lines.append("今日無符合條件的焦點股。")
+    elif all_promoted and not [t for t, _ in qualified if t in all_scores]:
+        # qualified only has promoted tickers — still show them
+        pass
+
+    # Ensure all display + promoted tickers have stock_info entry
+    for ticker in display_tickers:
+        if ticker not in stock_info and ticker in all_scores:
+            # find the holdings entry for this ticker
+            for h_candidate in holdings_data:
+                tk = str(h_candidate.get("ticker", h_candidate.get("代碼", ""))).strip().upper()
+                if tk == ticker:
+                    stock_info[ticker] = {
+                        "data": stocks_data.get(ticker),
+                        "h": h_candidate,
+                        "score": all_scores[ticker],
+                    }
+                    break
 
     for ticker in display_tickers:
+        if ticker not in stock_info:
+            continue
         d = stock_info[ticker]["data"]
         h = stock_info[ticker]["h"]
         score = stock_info[ticker]["score"]
