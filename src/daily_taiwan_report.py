@@ -24,6 +24,14 @@ from typing import Any, Dict, List, Optional
 
 import pytz
 
+from tw_market_context import (
+    fetch_tw_market_context,
+    build_tw_context_lines,
+    get_mood_label,
+    tw_scenario_lines,
+    tw_disclaimer_lines,
+    tw_weekend_note,
+)
 from config import GoogleSheetsManager
 from line_notifier import LineNotifier
 from taiwan_market_data import (
@@ -358,12 +366,62 @@ def _get_operation_suggestion(data: StockMarketData, score_info: Dict[str, Any],
     return "; ".join(suggestions[:2])
 
 
-def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
-                               watchlist: List[Dict[str, Any]],
-                               qfii_data: Dict[str, Dict[str, Any]] = None,
-                               cnyes_ratings: Dict[str, Dict[str, Any]] = None,
-                               exa_changes: Dict[str, Dict[str, Any]] = None,
-                               analyst_added: Dict[str, Dict[str, Any]] = None) -> str:
+
+def _tw_status_for_stock(data) -> str:
+    """Classify a TW stock's status relative to 20-day range."""
+    price = data.current_price
+    if price <= 0:
+        return "觀望"
+    sup_lo = data.low_20d
+    sup_hi = round(data.close_20d * 0.97, 2) if data.close_20d else 0
+    res_lo = round(data.high_20d * 0.98, 2)
+    res_hi = data.high_20d
+    if not sup_lo or not res_lo:
+        return "觀望"
+    if price < sup_lo:
+        return "轉弱"
+    if price > res_hi:
+        return "過熱"
+    if price >= res_lo:
+        return "壓力區"
+    if price <= sup_hi:
+        return "回踩"
+    return "觀望"
+
+
+def _tw_scenario_for_stock(data, qfii: dict = None) -> str:
+    """Generate a specific scenario-based action note for one stock."""
+    price = data.current_price
+    target = _effective_target(data)
+    qfii = qfii or {}
+    qfii_target = qfii.get("qfii_target", 0)
+    # use qfii_target if present (single source of truth)
+    if qfii_target > 0:
+        target = qfii_target
+    sup_lo = data.low_20d
+    sup_hi = round(data.close_20d * 0.97, 2) if data.close_20d else 0
+    res_lo = round(data.high_20d * 0.98, 2)
+    res_hi = data.high_20d
+
+    if price <= 0:
+        return "觀望"
+
+    if target > 0 and price > target:
+        gap = (price / target - 1) * 100
+        return f"已高於目標價 {gap:.0f}%，注意回調"
+
+    if price > res_hi:
+        return "已過壓力區，不追高，等回踩"
+    if price >= res_lo:
+        return f"壓力區（{res_lo:,.0f}～{res_hi:,.0f}），突破前不追高"
+    if price <= sup_hi:
+        return f"回踩支撐（{sup_lo:,.0f}～{sup_hi:,.0f}），量縮守穩可觀察"
+    return "現價在支撐與壓力之間，觀望"
+
+
+def build_taiwan_focus_report(stocks_data, watchlist,
+                               qfii_data=None, cnyes_ratings=None,
+                               exa_changes=None, analyst_added=None) -> str:
     qfii_data = qfii_data or {}
     exa_changes = exa_changes or {}
     analyst_added = analyst_added or {}
@@ -371,17 +429,13 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
     prev_tw = now_tw - timedelta(days=1)
     prev_date_str = prev_tw.strftime("%Y-%m-%d")
-
-    lines = []
-    lines.append("")
-    lines.append(f"# 台股AI摘要｜{date_str}")
-    lines.append(f"資料基準：{prev_date_str} 收盤")
-    lines.append("")
+    wk_note = tw_weekend_note().strip()
 
     all_scores: Dict[str, Dict[str, Any]] = {}
     stock_info: Dict[str, Dict[str, Any]] = {}
     for h in watchlist:
-        ticker, sheet_name = _extract_ticker_code(h.get("ticker", h.get("代碼", ""))); h["短名"] = sheet_name or h.get("短名", "")
+        ticker, sheet_name = _extract_ticker_code(h.get("ticker", h.get("代碼", "")))
+        h["短名"] = sheet_name or h.get("短名", "")
         if not ticker:
             continue
         data = stocks_data.get(ticker)
@@ -391,7 +445,8 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         all_scores[ticker] = score_info
         stock_info[ticker] = {"data": data, "h": h, "score": score_info}
 
-    qualified = [(t, s) for t, s in all_scores.items() if s["focus_score"] >= FOCUS_THRESHOLD]
+    qualified = [(t, s) for t, s in all_scores.items()
+                 if s["focus_score"] >= FOCUS_THRESHOLD]
     qualified.sort(key=lambda x: x[1]["focus_score"], reverse=True)
 
     auto_focus: List[str] = []
@@ -402,18 +457,15 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         tracking = str(h.get("追蹤", "")).strip()
         if tracking == "焦點股" and ticker not in [t for t, _ in qualified]:
             auto_focus.append(ticker)
-            if ticker not in all_scores:
-                score_info = compute_focus_score(stocks_data[ticker], h)
-                all_scores[ticker] = score_info
-                stock_info[ticker] = {"data": stocks_data[ticker], "h": h, "score": score_info}
     if auto_focus:
         existing = [(t, s) for t, s in qualified if t not in auto_focus]
         auto_entries = [(t, all_scores[t]) for t in auto_focus]
         qualified = auto_entries + existing
 
-    today_str = datetime.now(TW_TZ).strftime("%Y%m%d")
-    # Load previous day's QFII targets for change detection
-    prev_targets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "prev_qfii_targets.json")
+    # --- Load previous-day QFII snapshot for change detection ---
+    import os, json
+    prev_targets_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "data", "prev_qfii_targets.json")
     prev_targets: Dict[str, float] = {}
     try:
         with open(prev_targets_path, encoding="utf-8") as pf:
@@ -421,6 +473,7 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
+    today_str = datetime.now(TW_TZ).strftime("%Y%m%d")
     target_change_alerts: List[str] = []
     today_target_alerts: List[str] = []
     for ticker, qfii in qfii_data.items():
@@ -428,22 +481,19 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         if target <= 0:
             continue
         name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
-        # Check if this is a today's rating update
-        if ticker in cnyes_ratings:
-            rating = cnyes_ratings[ticker]
-            rating_date = rating.get("date", "")
-            if rating_date == today_str:
-                today_target_alerts.append(f"{name} ({ticker}) - 外資調整目標價至 {_fmt_price(target)} 元")
-        # Check if target changed vs previous snapshot
+        if ticker in (cnyes_ratings or {}):
+            rating = (cnyes_ratings or {}).get(ticker, {})
+            if rating.get("date", "") == today_str:
+                today_target_alerts.append(
+                    f"{name} ({ticker}) 外資今日調整目標價至 {_fmt_price(target)} 元")
         prev_tgt = prev_targets.get(ticker, 0)
         if prev_tgt > 0 and abs(target - prev_tgt) > 0.01:
-            direction = "上调" if target > prev_tgt else "下调"
+            direction = "上調" if target > prev_tgt else "下調"
             diff = target - prev_tgt
             target_change_alerts.append(
-                f"{name} ({ticker}) - 外資{direction}目標價 {_fmt_price(prev_tgt)} -> {_fmt_price(target)} (差 {_fmt_price(diff)})"
-            )
+                f"{name} ({ticker}) 外資{direction}目標價 "
+                f"{_fmt_price(prev_tgt)} → {_fmt_price(target)}（{_fmt_price(abs(diff))}）")
 
-    # Save current targets for tomorrow's comparison
     current_targets: Dict[str, float] = {}
     for ticker, qfii in qfii_data.items():
         tgt = qfii.get("qfii_target", 0)
@@ -456,69 +506,81 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
     except Exception as e:
         logger.warning("Failed to save prev targets: %s", e)
 
+    # --- Build report ---
+    lines: List[str] = []
+    lines.append(f"# 台股AI摘要｜{date_str}")
+    lines.append(f"資料基準：{prev_date_str} 收盤")
+    if wk_note:
+        lines.append(wk_note)
+    lines.append("")
+
+    # Section 一：市場風向
+    ctx = fetch_tw_market_context()
+    lines.extend(build_tw_context_lines(ctx))
+    lines.append(f"氛圍結論：{get_mood_label(ctx)}")
+    lines.append("")
+
+    # QFII target alerts
     if today_target_alerts:
-        lines.append("今日外資調整目標價重點股")
+        lines.append("## 今日外資目標價調整")
         for alert in today_target_alerts:
-            lines.append(alert)
+            lines.append(f"- {alert}")
         lines.append("")
     elif target_change_alerts:
-        lines.append("外資目標價異動股")
+        lines.append("## 外資目標價異動股")
         for alert in target_change_alerts[:5]:
-            lines.append(alert)
+            lines.append(f"- {alert}")
         lines.append("")
 
-    # Live exa-scraped target changes (from today's news)
+    # Exa-scraped target changes
     if exa_changes:
-        lines.append("📢 法人目標價即時異動（新聞爬蟲）")
+        lines.append("## 📢 法人目標價即時異動（新聞爬蟲，輔助參考）")
         for ticker, chg in exa_changes.items():
             name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
-            c = chg["curr"]
+            c = chg.get("curr", {})
             p = chg.get("prev")
             new_tgt = c.get("target", 0)
             new_broker = c.get("broker", "")
             new_date = c.get("date", "")
             if p:
                 old_tgt = p.get("target", 0)
-                reason = chg.get("reason", "")
                 lines.append(
-                    f"  {name} ({ticker}) 目標價 {old_tgt:.0f} → {new_tgt:.0f}"
+                    f"  {name} ({ticker}) 新聞目標價 {old_tgt:.0f} → {new_tgt:.0f}"
                     f"{' (' + new_broker + ')' if new_broker else ''}"
-                    f" {'（' + reason + '）' if reason else ''}"
-                )
+                    f" {'（' + chg.get('reason', '') + '）' if chg.get('reason') else ''}")
             else:
                 lines.append(
-                    f"  {name} ({ticker}) 新目標價 {new_tgt:.0f}"
-                    f"{' (' + new_broker + ')' if new_broker else ''}"
-                    f"（{new_date}）"
-                )
+                    f"  {name} ({ticker}) 新聞新目標價 {new_tgt:.0f}"
+                    f"{' (' + new_broker + ')' if new_broker else ''}（{new_date}）")
         lines.append("")
 
-    # --- Live analyst coverage increase alert ---
     if analyst_added:
-        lines.append("📈 法人追蹤人數增加")
-        for ticker, info in sorted(
-                analyst_added.items(),
-                key=lambda kv: kv[1]["delta"], reverse=True):
+        lines.append("## 📈 分析師追蹤人數增加")
+        for ticker, info in sorted(analyst_added.items(),
+                                    key=lambda kv: kv[1]["delta"], reverse=True):
             name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
-            n_prev = info["prev"]
-            n_curr = info["curr"]
-            delta = info["delta"]
             lines.append(
-                f"  {name} ({ticker}) 追蹤法人 {n_prev} → {n_curr} 家（+{delta}）")
+                f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）")
         lines.append("")
 
-    # Auto-promote stocks with target price changes (bypass focus score threshold)
-    target_change_tickers = set()
+    # Section 二：選股狀態
+    lines.append("## 二、選股狀態總覽")
+    lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
+    lines.append("")
+    lines.append(
+        "| 代號 | 收盤 | 日% | 狀態 | 支撐 | 壓力 | "
+        "目標價(Factset) | 催化/風險 | 情境 |")
+    lines.append("|---|---:|---:|---|---:|---:|---:|---|---|")
+
+    target_change_tickers: set = set()
     for ticker, qfii in qfii_data.items():
         target = qfii.get("qfii_target", 0)
         prev_tgt = prev_targets.get(ticker, 0)
         if prev_tgt > 0 and abs(target - prev_tgt) > 0.01 and ticker in all_scores:
             target_change_tickers.add(ticker)
-    # Also promote any ticker whose exa-scraped target changed (from live news)
-    for ticker, chg in exa_changes.items():
+    for ticker in exa_changes:
         if ticker in all_scores:
             target_change_tickers.add(ticker)
-    # Promote tickers whose analyst coverage count increased
     for ticker in analyst_added:
         if ticker in all_scores:
             target_change_tickers.add(ticker)
@@ -526,35 +588,75 @@ def build_taiwan_focus_report(stocks_data: Dict[str, StockMarketData],
         existing = [(t, s) for t, s in qualified if t not in target_change_tickers]
         change_entries = [(t, all_scores[t]) for t in target_change_tickers]
         qualified = change_entries + existing
-        # Also add to stock_info if missing
-        for ticker in target_change_tickers:
-            if ticker not in stock_info:
-                for h in watchlist:
-                    t = _extract_ticker_code(h.get("ticker", h.get("代碼", "")))[0]
-                    if t == ticker:
-                        stock_info[ticker] = {"data": stocks_data.get(ticker), "h": h, "score": all_scores[ticker]}
-                        break
 
-    special_focus = [(t, s) for t, s in qualified if t not in auto_focus and s.get("focus_score", 0) >= 70]
-    if special_focus:
-        lines.append("📌 特別焦點股（市場熱絡）")
-        for ticker, s in special_focus[:3]:
-            d = stock_info[ticker]["data"]
-            h = stock_info[ticker]["h"]
-            name = str(h.get("短名", "")).strip() or d.short_name or ticker
-            score = s.get("focus_score", 0)
-            cat = s.get("category", "")
-            lines.append(f"📊 {ticker} {name} | {score:.0f} 分 | {cat}")
+    display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
+    if not display_tickers:
+        lines.append("| — | — | — | — | — | — | — | — | — |")
 
-    if qualified:
-        for ticker, s in qualified[:MAX_FOCUS_STOCKS]:
-            d = stock_info[ticker]["data"]
-            h = stock_info[ticker]["h"]
-            lines.append(_build_focus_detail(ticker, d, h, s, qfii=qfii_data.get(ticker)))
+    for ticker in display_tickers:
+        d = stock_info[ticker]["data"]
+        h = stock_info[ticker]["h"]
+        qfii = qfii_data.get(ticker, {})
+        price = d.current_price
+        chg = d.day_change_pct
+        status = _tw_status_for_stock(d)
+        scenario = _tw_scenario_for_stock(d, qfii)
+
+        sup_lo = d.low_20d
+        sup_hi = round(d.close_20d * 0.97, 2) if d.close_20d else 0
+        res_lo = round(d.high_20d * 0.98, 2)
+        res_hi = d.high_20d
+        if sup_lo and sup_hi and sup_lo > sup_hi:
+            sup_lo, sup_hi = sup_hi, sup_lo
+        if res_lo and res_hi and res_lo > res_hi:
+            res_lo, res_hi = res_hi, res_lo
+        sup_band = f"{sup_lo:,.0f}～{sup_hi:,.0f}" if sup_lo and sup_hi else "N/A"
+        res_band = f"{res_lo:,.0f}～{res_hi:,.0f}" if res_lo and res_hi else "N/A"
+
+        # Target: single source of truth = QFII/Factset
+        qfii_target = qfii.get("qfii_target", 0)
+        target_disp = ""
+        if qfii_target > 0:
+            gap_pct = (qfii_target - price) / price * 100 if price > 0 else 0
+            long_note = "（長期參考）" if gap_pct > 50 else ""
+            target_disp = f"{qfii_target:,.0f}{long_note}"
+
+        notes = str(h.get("備註", "")).strip()
+        catalyst = notes[:25] if notes else "—"
+        lines.append(
+            f"| {ticker} | {price:,.0f} | {chg:+.1f}% | {status} "
+            f"| {sup_band} | {res_band} | {target_disp} | {catalyst} | {scenario} |")
+
+    lines.append("")
+    lines.append("目標價以 Factset（QFII）為準；新聞爬蟲目標價僅供輔助參考。")
+    lines.append("目標價距現價 > 50% 時標「長期參考」，不作為短線觸發。")
+    lines.append("")
+
+    # Section 三：今日重點變化
+    lines.append("## 三、今日重點變化")
+    notable = []
+    for ticker in display_tickers:
+        d = stock_info[ticker]["data"]
+        qfii = qfii_data.get(ticker, {})
+        status = _tw_status_for_stock(d)
+        scenario = _tw_scenario_for_stock(d, qfii)
+        chg = d.day_change_pct
+        if status in ("轉弱", "過熱", "壓力區") or abs(chg) > 3:
+            notable.append(f"- {ticker}：日漲跌 {chg:+.1f}%，狀態「{status}」，{scenario}")
+    if notable:
+        lines.extend(notable[:5])
     else:
-        lines.append("今日無符合條件的焦點股，請留意後續市場變化。")
+        lines.append("- 今日無重大狀態變化。")
+    lines.append("")
+
+    # Section 四：情境腳本
+    lines.extend(tw_scenario_lines(ctx))
+
+    # Section 五：備註
+    lines.extend(tw_disclaimer_lines())
 
     return "\n".join(lines)
+
 
 
 def main():
