@@ -29,7 +29,6 @@ from tw_market_context import (
     build_tw_context_lines,
     get_mood_label,
     tw_scenario_lines,
-    tw_disclaimer_lines,
     tw_weekend_note,
 )
 from config import GoogleSheetsManager
@@ -717,10 +716,6 @@ def build_taiwan_focus_report(stocks_data, watchlist,
     else:
         lines.append("- 今日無重大狀態變化。")
     lines.append("")
-
-    # --- 備註 ---
-    lines.extend(tw_disclaimer_lines())
-
     return "\n".join(lines)
 
 

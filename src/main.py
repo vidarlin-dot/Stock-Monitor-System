@@ -26,7 +26,6 @@ from us_market_context import (
     build_market_context_lines,
     get_mood_label,
     scenario_lines,
-    disclaimer_lines,
     weekend_note,
     top_analyst_lines,
 )
@@ -459,10 +458,6 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                     f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
                 )
         lines.append("")
-
-    # --- 備註 ---
-    lines.extend(disclaimer_lines())
-
     return chr(10).join(lines), [t for t, _ in qualified], stocks_data, stock_info
 
 def update_sheet_focus_scores(manager, stocks_data, stock_info, qualified_tickers):
