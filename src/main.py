@@ -393,7 +393,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     if exa_changes:
         lines.append("## 📢 法人目標價即時異動（新聞爬蟲）")
         for ticker, chg_info in exa_changes.items():
-            name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
+            name = _name_map.get(ticker, ticker)
             c = chg_info.get("curr", {})
             p = chg_info.get("prev")
             new_tgt = c.get("target", 0)
@@ -418,11 +418,18 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
         lines.append("## 📈 分析師追蹤人數增加")
         for ticker, info in sorted(analyst_added.items(),
                                     key=lambda kv: kv[1]["delta"], reverse=True):
-            name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
+            name = _name_map.get(ticker, ticker)
             lines.append(
                 f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
             )
         lines.append("")
+
+    # Build ticker->name map for exa / analyst_added sections
+    _name_map = {}
+    for h in holdings_data:
+        tk = str(h.get('ticker', h.get('代碼', ''))).strip().upper()
+        if tk:
+            _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
 
     # --- Section 四：情境腳本 ---
     lines.extend(scenario_lines(ctx))
