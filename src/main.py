@@ -414,6 +414,13 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                 )
         lines.append("")
 
+    # Build ticker->name map for exa / analyst_added sections
+    _name_map = {}
+    for h in holdings_data:
+        tk = str(h.get('ticker', h.get('代碼', ''))).strip().upper()
+        if tk:
+            _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
+
     if analyst_added:
         lines.append("## 📈 分析師追蹤人數增加")
         for ticker, info in sorted(analyst_added.items(),
@@ -423,13 +430,6 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                 f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
             )
         lines.append("")
-
-    # Build ticker->name map for exa / analyst_added sections
-    _name_map = {}
-    for h in holdings_data:
-        tk = str(h.get('ticker', h.get('代碼', ''))).strip().upper()
-        if tk:
-            _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
 
     # --- Section 四：情境腳本 ---
     lines.extend(scenario_lines(ctx))
