@@ -150,11 +150,17 @@ def fetch_market_context() -> Dict[str, Any]:
         data["label"] = label
         etfs[tk] = data
 
+    # Sector rotation: XLK (tech) vs XLE (energy) day change
+    xlk_chg = etfs.get("XLK", {}).get("day_change_pct", 0)
+    xle_chg = etfs.get("XLE", {}).get("day_change_pct", 0)
+    sector_rotation = "XLE 較強（防禦）" if xle_chg > xlk_chg else "XLK 較強（風險偏好）"
+
     payload: Dict[str, Any] = {
         "etfs": etfs,
         "vix": _fetch_vix(),
         "tnx10": _fetch_10y(),
         "dxy": _fetch_dxy(),
+        "sector_rotation": sector_rotation,
         "fetched_at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M"),
     }
     _save_cache(payload)
@@ -210,6 +216,10 @@ def build_market_context_lines(ctx: Dict[str, Any]) -> List[str]:
         ln = _etf_line(tk)
         if ln:
             lines.append(ln)
+
+    rot = ctx.get("sector_rotation", "")
+    if rot:
+        lines.append(f"- **主題輪動**：{rot}")
 
     if vix.get("price"):
         lines.append(

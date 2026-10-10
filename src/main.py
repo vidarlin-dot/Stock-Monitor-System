@@ -160,6 +160,28 @@ def _status_for_stock(data) -> str:
     return "觀望"
 
 
+def _scenario_for_stock(data, target: float = 0) -> str:
+    """Return a specific scenario-based action note for one US stock."""
+    price = data.current_price
+    if price <= 0:
+        return "觀望"
+    sup_lo = data.low_20d
+    sup_hi = round(data.close_20d * 0.97, 2) if data.close_20d else 0
+    res_lo = round(data.high_20d * 0.98, 2)
+    res_hi = data.high_20d
+
+    if target > 0 and price > target:
+        gap = (price / target - 1) * 100
+        return f"已高於目標價 {gap:.0f}%，注意回調"
+    if price > res_hi:
+        return "已過壓力區，不追高，等回踩"
+    if price >= res_lo:
+        return f"壓力區（{res_lo:,.2f}～{res_hi:,.2f}），突破前不追高"
+    if price <= sup_hi:
+        return f"回踩支撐（{sup_lo:,.2f}～{sup_hi:,.2f}），量縮守穩可觀察"
+    return "現價在支撐與壓力之間，觀望"
+
+
 def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: dict = None):
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
@@ -250,13 +272,13 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
 
     # Table header
     lines.append(
-        "| 代號 | 現價 | 日% | 分析師覆蓋 | 狀態 | 支撐 | 壓力 | 財報日 | 催化/風險 |"
+        "| 代號 | 現價 | 日% | 分析師覆蓋 | 狀態 | 支撐 | 壓力 | 財報日 | 催化/風險 | 情境 |"
     )
-    lines.append("|---|---:|---:|---:|---|---:|---:|---|---|")
+    lines.append("|---|---:|---:|---:|---|---:|---:|---|---|---|")
 
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
     if not display_tickers:
-        lines.append("| — | — | — | — | — | — | — | — | — |")
+        lines.append("| — | — | — | — | — | — | — | — | — | — |")
 
     for ticker in display_tickers:
         d = stock_info[ticker]["data"]
@@ -291,10 +313,11 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
         cat   = score.get("category", "")
         risk  = str(h.get("notes", "")).strip() or cat
         earnings = str(d.earnings_date or "").strip()
+        scenario = _scenario_for_stock(d, target)
         lines.append(
             f"| {ticker} | {price:,.2f} | {chg:+.2f}% | {analyst_str} "
             f"| {status} | {sup_band} | {res_band}{target_note} "
-            f"| {earnings} | {risk[:30]} |"
+            f"| {earnings} | {risk[:30]} | {scenario} |"
         )
 
     lines.append("")

@@ -568,9 +568,9 @@ def build_taiwan_focus_report(stocks_data, watchlist,
     lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
     lines.append("")
     lines.append(
-        "| 代號 | 收盤 | 日% | 狀態 | 支撐 | 壓力 | "
+        "| 代號 | 收盤 | 日% | 相對大盤 | 狀態 | 支撐 | 壓力 | "
         "目標價(Factset) | 催化/風險 | 情境 |")
-    lines.append("|---|---:|---:|---|---:|---:|---:|---|---|")
+    lines.append("|---|---:|---:|---:|---|---:|---:|---:|---|---|")
 
     target_change_tickers: set = set()
     for ticker, qfii in qfii_data.items():
@@ -591,7 +591,7 @@ def build_taiwan_focus_report(stocks_data, watchlist,
 
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
     if not display_tickers:
-        lines.append("| — | — | — | — | — | — | — | — | — |")
+        lines.append("| — | — | — | — | — | — | — | — | — | — |")
 
     for ticker in display_tickers:
         d = stock_info[ticker]["data"]
@@ -623,8 +623,12 @@ def build_taiwan_focus_report(stocks_data, watchlist,
 
         notes = str(h.get("備註", "")).strip()
         catalyst = notes[:25] if notes else "—"
+        twse_item = ctx.get("items", {}).get("TWSE", {})
+        twse_chg = twse_item.get("day_change_pct", 0)
+        rel = chg - twse_chg if twse_chg else 0
+        rel_str = f"{rel:+.1f}%" if twse_chg else "—"
         lines.append(
-            f"| {ticker} | {price:,.0f} | {chg:+.1f}% | {status} "
+            f"| {ticker} | {price:,.0f} | {chg:+.1f}% | {rel_str} | {status} "
             f"| {sup_band} | {res_band} | {target_disp} | {catalyst} | {scenario} |")
 
     lines.append("")
