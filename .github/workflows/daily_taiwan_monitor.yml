@@ -69,6 +69,7 @@ jobs:
           GCP_SERVICE_ACCOUNT_JSON: ${{secrets.GCP_SERVICE_ACCOUNT_JSON }}
         run: |
           python src/update_taiwan_prices.py
+        continue-on-error: true
 
       - name: Run Taiwan Stock Focus Report
         env:
