@@ -21,6 +21,14 @@ import pytz
 
 from config import GoogleSheetsManager
 from line_notifier import LineNotifier
+from us_market_context import (
+    fetch_market_context,
+    build_market_context_lines,
+    get_mood_label,
+    scenario_lines,
+    disclaimer_lines,
+    weekend_note,
+)
 from us_market_data import (
     StockMarketData,
     compute_focus_score,
@@ -106,70 +114,221 @@ def _build_stock_block(ticker, data, h, score_info):
     return chr(10).join(lines)
 
 
+def _classify_status(price: float, low: float, high: float) -> str:
+    """Classify a stock's status relative to a support/resistance band.
+
+    low/high form a *band*; if price is below the band it is 'below support',
+    inside it is 'in band', above is 'above band'.
+    For support bands (low < high) we additionally mark 'near support'
+    when price is within 1% of the band's top edge.
+    """
+    if not low or not high or not price:
+        return "觀望"
+    lo = min(low, high)
+    hi = max(low, high)
+    if price < lo * 0.99:
+        return "轉弱"
+    if price <= hi:
+        if price >= hi * 0.99:
+            return "接近壓力"
+        return "支撐區內"
+    if price <= hi * 1.03:
+        return "壓力區"
+    return "過熱"
+
+
+def _status_for_stock(data) -> str:
+    """Use 20-day range for support/resistance classification."""
+    price = data.current_price
+    # support band = last 20 days low, resistance band = last 20 days high
+    sup_lo = data.low_20d
+    sup_hi = data.close_20d * 0.97 if data.close_20d else 0
+    res_lo = data.high_20d * 0.98
+    res_hi = data.high_20d
+    if price <= 0:
+        return "觀望"
+    if not sup_lo or not res_lo:
+        return "觀望"
+    if price < sup_lo:
+        return "轉弱"
+    if price > res_hi:
+        return "過熱"
+    if price >= res_lo:
+        return "壓力區"
+    if price <= sup_hi:
+        return "回踩"
+    return "觀望"
+
+
 def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: dict = None):
     now_tw = datetime.now(TW_TZ)
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
+    wk_note = weekend_note().strip()
 
-    auto_focus_tickers = []
-    scored_tickers = []
+    auto_focus_tickers: List[str] = []
+    scored_tickers: List[str] = []
     for h in holdings_data:
         ticker = str(h.get("ticker", h.get("代碼", ""))).strip().upper()
-        if not ticker: continue
+        if not ticker:
+            continue
         tracking = str(h.get("tracking", h.get("追蹤", ""))).strip()
-        if tracking == "焦點股": auto_focus_tickers.append(ticker)
-        else: scored_tickers.append(ticker)
+        if tracking == "焦點股":
+            auto_focus_tickers.append(ticker)
+        else:
+            scored_tickers.append(ticker)
 
     all_tickers = auto_focus_tickers + scored_tickers
     stocks_data = fetch_all_us_stock_data(all_tickers)
     if not stocks_data:
-        return f"# 美股AI摘要｜{date_str}\n\n⚠️ 無法取得股票資料，請稍後再試。", [], {}, {}
+        return (
+            f"# 美股 AI 焦點股廣播 | {date_str}\n{wk_note}\n"
+            "⚠️ 無法取得股票資料，請稍後再試。",
+            [], {}, {},
+        )
 
-    all_scores = {}
-    stock_info = {}
+    all_scores: Dict[str, Dict[str, Any]] = {}
+    stock_info: Dict[str, Dict[str, Any]] = {}
     for h in holdings_data:
         ticker = str(h.get("ticker", h.get("代碼", ""))).strip().upper()
-        if not ticker: continue
+        if not ticker:
+            continue
         h["短名"] = h.get("company_name", h.get("名稱", ""))
         h["tracking"] = str(h.get("tracking", h.get("追蹤", ""))).strip()
         data = stocks_data.get(ticker)
-        if data is None or data.current_price <= 0: continue
+        if data is None or data.current_price <= 0:
+            continue
         score_info = compute_focus_score(data, h)
         all_scores[ticker] = score_info
         stock_info[ticker] = {"data": data, "h": h, "score": score_info}
 
-    qualified = [(t, s) for t, s in all_scores.items() if s["focus_score"] >= FOCUS_THRESHOLD]
+    qualified = [(t, s) for t, s in all_scores.items()
+                 if s["focus_score"] >= FOCUS_THRESHOLD]
     qualified.sort(key=lambda x: x[1]["focus_score"], reverse=True)
+
     auto_added = []
     for t in auto_focus_tickers:
         if t in all_scores and t not in [x[0] for x in qualified]:
             auto_added.append((t, all_scores[t]))
-    if auto_added: qualified = auto_added + qualified
+    if auto_added:
+        qualified = auto_added + qualified
 
-    # Auto-promote tickers whose exa-scraped target price changed
+    # Exa-scraped target changes
     exa_changes = exa_changes or {}
     analyst_added = analyst_added or {}
     exa_added = []
     for ticker, chg in exa_changes.items():
         if ticker not in [x[0] for x in qualified]:
-            s = all_scores.get(ticker)
-            if s:
-                exa_added.append((ticker, s))
-    # Also promote tickers whose analyst coverage count increased
+            s_info = all_scores.get(ticker)
+            if s_info:
+                exa_added.append((ticker, s_info))
+
     analyst_added_tickers = [
         (t, all_scores[t]) for t in analyst_added
         if t in all_scores and t not in [x[0] for x in qualified]
     ]
     all_promoted = exa_added + analyst_added_tickers
-    lines = [f"# 美股 AI 焦點股票 | {date_str}", ""]
-    if all_promoted:
-        qualified = all_promoted + qualified
-        lines.append("")
-        if exa_changes:
-            lines.append("📢 法人目標價即時異動（新聞爬蟲）")
-        for ticker, chg in exa_changes.items():
+
+    # ------------------------------------------------------------------
+    # Build the new-format report
+    # ------------------------------------------------------------------
+    lines: List[str] = []
+    lines.append(f"# 美股 AI 焦點股廣播 | {date_str}")
+    if wk_note:
+        lines.append(wk_note)
+    lines.append("")
+
+    # --- Section 一：市場風向儀表板 ---
+    ctx = fetch_market_context()
+    lines.extend(build_market_context_lines(ctx))
+    lines.append(f"氛圍結論：{get_mood_label(ctx)}")
+    lines.append("")
+
+    # --- Section 二：選股狀態總覽 ---
+    lines.append("## 二、選股狀態總覽")
+    lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
+    lines.append("")
+
+    # Table header
+    lines.append(
+        "| 代號 | 現價 | 日% | 分析師覆蓋 | 狀態 | 支撐 | 壓力 | 財報日 | 催化/風險 |"
+    )
+    lines.append("|---|---:|---:|---:|---|---:|---:|---|---|")
+
+    display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
+    if not display_tickers:
+        lines.append("| — | — | — | — | — | — | — | — | — |")
+
+    for ticker in display_tickers:
+        d = stock_info[ticker]["data"]
+        h = stock_info[ticker]["h"]
+        score = stock_info[ticker]["score"]
+        price = d.current_price
+        chg   = d.day_change_pct
+        status = _status_for_stock(d)
+        # support / resistance bands
+        sup_lo = d.low_20d
+        sup_hi = round(d.close_20d * 0.97, 2) if d.close_20d else 0
+        res_lo = round(d.high_20d * 0.98, 2)
+        res_hi = d.high_20d
+        # ensure low < high
+        if sup_lo and sup_hi and sup_lo > sup_hi:
+            sup_lo, sup_hi = sup_hi, sup_lo
+        if res_lo and res_hi and res_lo > res_hi:
+            res_lo, res_hi = res_hi, res_lo
+        sup_band = f"{sup_lo:,.2f}～{sup_hi:,.2f}" if sup_lo and sup_hi else "N/A"
+        res_band = f"{res_lo:,.2f}～{res_hi:,.2f}" if res_lo and res_hi else "N/A"
+        # analyst count (hide 0)
+        n_analysts = d.analysts
+        analyst_str = str(n_analysts) if n_analysts > 0 else "待確認"
+        # target price context
+        target = d.mean_target
+        target_note = ""
+        if target > 0 and price > 0:
+            gap_pct = (target - price) / price * 100
+            if gap_pct > 50:
+                target_note = "（長期參考）"
+        # catalyst / risk from holdings notes
+        cat   = score.get("category", "")
+        risk  = str(h.get("notes", "")).strip() or cat
+        earnings = str(d.earnings_date or "").strip()
+        lines.append(
+            f"| {ticker} | {price:,.2f} | {chg:+.2f}% | {analyst_str} "
+            f"| {status} | {sup_band} | {res_band}{target_note} "
+            f"| {earnings} | {risk[:30]} |"
+        )
+
+    lines.append("")
+    lines.append("分析師覆蓋僅供參考，不顯示 0→N 變化。")
+    lines.append("")
+
+    # --- Section 三：今日重點變化 ---
+    lines.append("## 三、今日重點變化")
+    notable = []
+    for ticker in display_tickers:
+        d = stock_info[ticker]["data"]
+        status = _status_for_stock(d)
+        chg = d.day_change_pct
+        if status in ("轉弱", "過熱", "壓力區") or abs(chg) > 3:
+            note = f"{ticker}：日漲跌 {chg:+.2f}%，狀態「{status}」"
+            if status in ("壓力區", "過熱"):
+                note += "，不追高；等回踩再觀察"
+            elif status == "轉弱":
+                note += "，先降低關注度"
+            notable.append(note)
+    if notable:
+        for n in notable:
+            lines.append(f"- {n}")
+    else:
+        lines.append("- 今日無重大狀態變化。")
+    lines.append("")
+
+    # Exa-scraped target changes (still displayed, but formatted cleanly)
+    if exa_changes:
+        lines.append("## 📢 法人目標價即時異動（新聞爬蟲）")
+        for ticker, chg_info in exa_changes.items():
             name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
-            c = chg.get("curr", {})
-            p = chg.get("prev")
+            c = chg_info.get("curr", {})
+            p = chg_info.get("prev")
             new_tgt = c.get("target", 0)
             new_broker = c.get("broker", "")
             new_date = c.get("date", "")
@@ -178,7 +337,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                 lines.append(
                     f"  {name} ({ticker}) 目標價 ${old_tgt:.2f} → ${new_tgt:.2f}"
                     f"{' (' + new_broker + ')' if new_broker else ''}"
-                    f"{'（' + chg.get('reason','') + '）' if chg.get('reason') else ''}"
+                    f"{'（' + chg_info.get('reason', '') + '）' if chg_info.get('reason') else ''}"
                 )
             else:
                 lines.append(
@@ -186,29 +345,25 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                     f"{' (' + new_broker + ')' if new_broker else ''}"
                     f"（{new_date}）"
                 )
-        if analyst_added:
-            lines.append("")
-            lines.append("📈 法人追蹤人數增加")
-            for ticker, info in sorted(
-                    analyst_added.items(),
-                    key=lambda kv: kv[1]["delta"], reverse=True):
-                name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
-                n_prev = info["prev"]
-                n_curr = info["curr"]
-                delta = info["delta"]
-                lines.append(
-                    f"  {name} ({ticker}) 追蹤法人 {n_prev} → {n_curr} 家（+{delta}）")
+        lines.append("")
 
-    if qualified:
-        for ticker, s in qualified[:MAX_FOCUS_STOCKS]:
-            d = stock_info[ticker]["data"]
-            h = stock_info[ticker]["h"]
-            lines.append(_build_stock_block(ticker, d, h, s))
-    else:
-        lines.append("今日無符合條件的焦點股，請留意後續市場變化。")
+    if analyst_added:
+        lines.append("## 📈 分析師追蹤人數增加")
+        for ticker, info in sorted(analyst_added.items(),
+                                    key=lambda kv: kv[1]["delta"], reverse=True):
+            name = stock_info.get(ticker, {}).get("h", {}).get("短名", ticker)
+            lines.append(
+                f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
+            )
+        lines.append("")
+
+    # --- Section 四：情境腳本 ---
+    lines.extend(scenario_lines(ctx))
+
+    # --- Section 五：備註 ---
+    lines.extend(disclaimer_lines())
 
     return chr(10).join(lines), [t for t, _ in qualified], stocks_data, stock_info
-
 
 def update_sheet_focus_scores(manager, stocks_data, stock_info, qualified_tickers):
     try:
