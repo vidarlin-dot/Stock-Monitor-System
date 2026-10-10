@@ -291,8 +291,7 @@ def top_analyst_lines(all_scores: Dict[str, Dict[str, Any]], top_n: int = 5) -> 
     lines = ["📈 分析師最熱 Top 5"]
     for i, (tk, n) in enumerate(ranked):
         prefix = medals[i] if i < len(medals) else f"{i+1}."
-        bar_len = max(1, round(n * 12 / top)) if top else 1
-        lines.append(f"{prefix} {tk} {n}家 {'█' * bar_len}")
+        lines.append(f"{prefix} {tk} {n}人")
     lines.append("")
     return lines
 
