@@ -115,16 +115,35 @@ def build_j_text(rec, analysts, target):
     return text
 
 
+def _safe_update(ws, range_str, cell_values, max_retries=5):
+    """Wrapper around ws.update() with exponential backoff for 429 rate limits."""
+    import gspread
+    for attempt in range(max_retries):
+        try:
+            ws.update(range_str, cell_values)
+            return
+        except gspread.exceptions.APIError as e:
+            if e.response is not None and e.response.status_code == 429:
+                wait = min(2 ** attempt, 30)
+                logger.warning(
+                    "Sheets API rate limit (429). Retrying in %ds (attempt %d/%d)...",
+                    wait, attempt + 1, max_retries,
+                )
+                time.sleep(wait)
+            else:
+                raise
+    raise RuntimeError(f"Failed to update Google Sheets after {max_retries} retries")
+
+
 def batch_update_column(ws, col_1idx, start_row, end_row, values):
     """Batch update a single column range. values[i] corresponds to row start_row+i."""
     if not values:
         return 0
-    # Build 2D list: [[v1], [v2], ...]
     cell_values = [[v] for v in values if v is not None]
     if not cell_values:
         return 0
     range_str = f"{rowcol_to_a1(start_row, col_1idx)}:{rowcol_to_a1(start_row + len(cell_values) - 1, col_1idx)}"
-    ws.update(range_str, cell_values)
+    _safe_update(ws, range_str, cell_values)
     return len(cell_values)
 
 
