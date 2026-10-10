@@ -427,14 +427,21 @@ def diff_analyst_counts(prev: Dict[str, int],
     """Return tickers where the number of tracking analysts increased.
 
     A ticker qualifies when:
-      - prev count < curr count
+      - prev count is known (baseline exists) and prev < curr
       - curr count >= min_analysts   (avoid noise on 1-2 analyst tickers)
+
+    Tickers without a baseline (prev = 0 / missing) are NOT promoted:
+    showing "0 -> N" is treated as a data artifact, not a real increase.
 
     Returns {ticker: {"prev": int, "curr": int, "delta": int}}
     """
     added: Dict[str, Dict[str, Any]] = {}
     for ticker, n_curr in curr.items():
         n_prev = prev.get(ticker, 0)
+        if n_prev <= 0:
+            # No baseline yet (first time tracking) -- show as 待確認 later,
+            # never as a "0 -> N" increase.
+            continue
         if n_curr > n_prev and n_curr >= min_analysts:
             added[ticker] = {
                 "prev": n_prev,

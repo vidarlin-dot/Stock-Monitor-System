@@ -559,8 +559,12 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         for ticker, info in sorted(analyst_added.items(),
                                     key=lambda kv: kv[1]["delta"], reverse=True):
             name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
-            lines.append(
-                f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）")
+            if info.get("prev", 0) <= 0:
+                lines.append(
+                    f"  {name} ({ticker}) 分析師覆蓋 {info['curr']} 家（前值待確認）")
+            else:
+                lines.append(
+                    f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）")
         lines.append("")
 
     # Section 二：選股狀態（純文字圖標版）

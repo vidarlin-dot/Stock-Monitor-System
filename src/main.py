@@ -249,6 +249,8 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
         if t in all_scores and t not in [x[0] for x in qualified]
     ]
     all_promoted = exa_added + analyst_added_tickers
+    # Merge promoted tickers into qualified so they are displayed
+    qualified = all_promoted + qualified
 
     # ------------------------------------------------------------------
     # Build the new-format report
@@ -258,6 +260,14 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     if wk_note:
         lines.append(wk_note)
     lines.append("")
+
+    # Build ticker->name map early (used by exa section and stock blocks)
+    _name_map = {}
+    for h in holdings_data:
+        tk = str(h.get('ticker', h.get('代碼', ''))).strip().upper()
+        if tk:
+            _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
+
 
     # --- Section 一：市場風向儀表板 ---
     ctx = fetch_market_context()
@@ -414,21 +424,19 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                 )
         lines.append("")
 
-    # Build ticker->name map for exa / analyst_added sections
-    _name_map = {}
-    for h in holdings_data:
-        tk = str(h.get('ticker', h.get('代碼', ''))).strip().upper()
-        if tk:
-            _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
-
     if analyst_added:
         lines.append("## 📈 分析師追蹤人數增加")
         for ticker, info in sorted(analyst_added.items(),
                                     key=lambda kv: kv[1]["delta"], reverse=True):
             name = _name_map.get(ticker, ticker)
-            lines.append(
-                f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
-            )
+            if info.get("prev", 0) <= 0:
+                lines.append(
+                    f"  {name} ({ticker}) 分析師覆蓋 {info['curr']} 家（前值待確認）"
+                )
+            else:
+                lines.append(
+                    f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
+                )
         lines.append("")
 
     # --- Section 四：情境腳本 ---
