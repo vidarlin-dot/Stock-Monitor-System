@@ -442,6 +442,7 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         if data is None or data.current_price <= 0:
             continue
         score_info = compute_focus_score(data, h)
+        score_info["analysts"] = data.analysts
         all_scores[ticker] = score_info
         stock_info[ticker] = {"data": data, "h": h, "score": score_info}
 
@@ -514,11 +515,14 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         lines.append(wk_note)
     lines.append("")
 
-    # Section 一：市場風向
+    # --- 市場風向 ---
     ctx = fetch_tw_market_context()
     lines.extend(build_tw_context_lines(ctx))
-    lines.append(f"氛圍結論：{get_mood_label(ctx)}")
+    lines.append(f"🧭 氛圍：{get_mood_label(ctx)}")
     lines.append("")
+
+    # --- 情境腳本 ---
+    lines.extend(tw_scenario_lines(ctx))
 
     # QFII target alerts
     if today_target_alerts:
@@ -560,15 +564,23 @@ def build_taiwan_focus_report(stocks_data, watchlist,
                                     key=lambda kv: kv[1]["delta"], reverse=True):
             name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
             if info.get("prev", 0) <= 0:
-                lines.append(
-                    f"  {name} ({ticker}) 分析師覆蓋 {info['curr']} 家（前值待確認）")
+                if info.get('curr', 0) > 0:
+                    lines.append(
+                        f"  {name} ({ticker}) 分析師覆蓋 {info['curr']} 家（前值待確認）")
+                else:
+                    lines.append(f"  {name} ({ticker}) 分析師覆蓋待確認")
+                continue
             else:
                 lines.append(
                     f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）")
         lines.append("")
 
-    # Section 二：選股狀態（純文字圖標版）
-    lines.append("## 二、選股狀態")
+    # --- 分析師最熱 Top 5 ---
+    lines.extend(top_analyst_lines_tw(all_scores, stock_info))
+    lines.append("")
+
+    # --- 選股狀態（純文字圖標版） ---
+    lines.append("📊 選股狀態")
     lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
     lines.append("")
 
@@ -587,6 +599,9 @@ def build_taiwan_focus_report(stocks_data, watchlist,
     if target_change_tickers:
         existing = [(t, s) for t, s in qualified if t not in target_change_tickers]
         change_entries = [(t, all_scores[t]) for t in target_change_tickers]
+        # Dedup: keep only the first occurrence of each ticker
+        _seen = set()
+        change_entries = [e for e in change_entries if e[0] not in _seen and not _seen.add(e[0])]
         qualified = change_entries + existing
 
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
@@ -703,14 +718,34 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         lines.append("- 今日無重大狀態變化。")
     lines.append("")
 
-    # Section 四：情境腳本
-    lines.extend(tw_scenario_lines(ctx))
-
-    # Section 五：備註
+    # --- 備註 ---
     lines.extend(tw_disclaimer_lines())
 
     return "\n".join(lines)
 
+
+
+def top_analyst_lines_tw(all_scores, stock_info, top_n: int = 5):
+    """分析師最熱 Top N block for TW report (code + short name + count + bar)."""
+    ranked = []
+    for tk, s in all_scores.items():
+        n = s.get("analysts", 0)
+        if n > 0:
+            short = str(stock_info.get(tk, {}).get("h", {}).get("短名", "")).strip() or tk
+            ranked.append((tk, short, n))
+    ranked.sort(key=lambda x: x[2], reverse=True)
+    ranked = ranked[:top_n]
+    if not ranked:
+        return ["📈 分析師最熱 Top 5", "- 無資料", ""]
+    top = max(n for _, _, n in ranked)
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+    lines = ["📈 分析師最熱 Top 5"]
+    for i, (tk, short, n) in enumerate(ranked):
+        prefix = medals[i] if i < len(medals) else f"{i+1}."
+        bar_len = max(1, round(n * 12 / top)) if top else 1
+        lines.append(f"{prefix} {tk} {short} {n}家 {'█' * bar_len}")
+    lines.append("")
+    return lines
 
 
 def main():

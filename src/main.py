@@ -28,6 +28,7 @@ from us_market_context import (
     scenario_lines,
     disclaimer_lines,
     weekend_note,
+    top_analyst_lines,
 )
 from us_market_data import (
     StockMarketData,
@@ -220,6 +221,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
         if data is None or data.current_price <= 0:
             continue
         score_info = compute_focus_score(data, h)
+        score_info["analysts"] = data.analysts
         all_scores[ticker] = score_info
         stock_info[ticker] = {"data": data, "h": h, "score": score_info}
 
@@ -243,12 +245,20 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
             s_info = all_scores.get(ticker)
             if s_info:
                 exa_added.append((ticker, s_info))
+                # Promote exa target-change tickers; prev=0 renders as 前值待確認.
+                if ticker not in analyst_added:
+                    analyst_added[ticker] = {"prev": 0, "curr": 0, "delta": 0}
+
 
     analyst_added_tickers = [
         (t, all_scores[t]) for t in analyst_added
         if t in all_scores and t not in [x[0] for x in qualified]
     ]
     all_promoted = exa_added + analyst_added_tickers
+    # Dedup: a ticker promoted by both exa and analyst_added appears only once
+    seen = set()
+    all_promoted = [e for e in all_promoted
+                     if e[0] not in seen and not seen.add(e[0])]
     # Merge promoted tickers into qualified so they are displayed
     qualified = all_promoted + qualified
 
@@ -269,14 +279,21 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
             _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
 
 
-    # --- Section 一：市場風向儀表板 ---
+    # --- 市場風向 ---
     ctx = fetch_market_context()
     lines.extend(build_market_context_lines(ctx))
-    lines.append(f"氛圍結論：{get_mood_label(ctx)}")
+    lines.append(f"🧭 氛圍：{get_mood_label(ctx)}")
     lines.append("")
 
-    # --- Section 二：選股狀態（純文字圖標版） ---
-    lines.append("## 二、選股狀態")
+    # --- 情境腳本 ---
+    lines.extend(scenario_lines(ctx))
+
+    # --- 分析師最熱 Top 5 ---
+    lines.extend(top_analyst_lines(all_scores))
+    lines.append("")
+
+    # --- 選股狀態（純文字圖標版） ---
+    lines.append("📊 選股狀態")
     lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
     lines.append("")
 
@@ -380,6 +397,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
 
     # --- Section 三：今日重點變化 ---
     lines.append("## 三、今日重點變化")
+    lines.append("")
     notable = []
     for ticker in display_tickers:
         d = stock_info[ticker]["data"]
@@ -430,19 +448,19 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
                                     key=lambda kv: kv[1]["delta"], reverse=True):
             name = _name_map.get(ticker, ticker)
             if info.get("prev", 0) <= 0:
-                lines.append(
-                    f"  {name} ({ticker}) 分析師覆蓋 {info['curr']} 家（前值待確認）"
-                )
+                if info.get('curr', 0) > 0:
+                    lines.append(
+                        f"  {name} ({ticker}) 分析師覆蓋 {info['curr']} 家（前值待確認）")
+                else:
+                    lines.append(f"  {name} ({ticker}) 分析師覆蓋待確認")
+                continue
             else:
                 lines.append(
                     f"  {name} ({ticker}) 分析師覆蓋 {info['prev']} → {info['curr']} 家（+{info['delta']}）"
                 )
         lines.append("")
 
-    # --- Section 四：情境腳本 ---
-    lines.extend(scenario_lines(ctx))
-
-    # --- Section 五：備註 ---
+    # --- 備註 ---
     lines.extend(disclaimer_lines())
 
     return chr(10).join(lines), [t for t, _ in qualified], stocks_data, stock_info

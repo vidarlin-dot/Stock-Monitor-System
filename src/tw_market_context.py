@@ -126,30 +126,27 @@ def _ma_side(price: float, ma: float) -> str:
 
 
 def build_tw_context_lines(ctx: Dict[str, Any]) -> List[str]:
+    """Compact 市場風向 line: 加權/櫃買/台積電/費半 on one line."""
     lines: List[str] = []
     items = ctx.get("items", {})
-    lines.append("## 一、市場風向")
+    lines.append("🌐 市場風向")
 
-    def _line(tk: str) -> Optional[str]:
-        d = items.get(tk)
-        if not d or not d.get("price"):
-            return None
-        label = d.get("label", tk)
-        price = d["price"]
-        chg   = d["day_change_pct"]
-        ma20  = d.get("ma20", 0)
-        ma50  = d.get("ma50", 0)
-        s20   = _ma_side(price, ma20)
-        s50   = _ma_side(price, ma50)
-        return (
-            f"- **{tk}**（{label}）：{price:,.0f}（{_fmt_pct(chg)}），"
-            f"MA20 {_fmt_pct(price - ma20) if ma20 else 'N/A'}（{s20}）、MA50（{s50}）"
+    parts: List[str] = []
+    for tk, tag in (("TWSE", "加權"), ("OTC", "櫃買"), ("2330.TW", "台積電"), ("^SOX", "費半")):
+        d = items.get(tk, {})
+        if d.get("price"):
+            parts.append(f"{tag} {d['price']:,.0f}（{_fmt_pct(d.get('day_change_pct', 0))}）")
+        else:
+            parts.append(f"{tag} —")
+    lines.append("｜".join(parts))
+
+    taiex = items.get("TWSE", {})
+    if taiex.get("ma20"):
+        s20 = _ma_side(taiex["price"], taiex["ma20"])
+        s50 = _ma_side(taiex.get("price", 0), taiex.get("ma50", 0))
+        lines.append(
+            f"加權 MA20 {s20}（{taiex['ma20']:,.0f}）｜MA50 {s50}（{taiex.get('ma50', 0):,.0f}）"
         )
-
-    for tk in ("TWSE", "OTC", "2330.TW", "^SOX"):
-        ln = _line(tk)
-        if ln:
-            lines.append(ln)
 
     lines.append("")
     return lines
@@ -177,33 +174,26 @@ def get_mood_label(ctx: Dict[str, Any]) -> str:
 
 def tw_scenario_lines(ctx: Dict[str, Any]) -> List[str]:
     lines: List[str] = []
-    lines.append("## 四、情境腳本")
+    lines.append("⚡ 情境腳本")
     items = ctx.get("items", {})
     taiex_ma20 = items.get("TWSE", {}).get("ma20", 0)
-    sox_price  = items.get("^SOX", {}).get("price", 0)
 
     if taiex_ma20:
         lines.append(
-            f"- 若加權守住 MA20（{taiex_ma20:,.0f}）且台積電偏強：回踩支撐的選股可留意。"
+            f"- 加權守 MA20 {taiex_ma20:,.0f} 且台積電強：回踩支撐可留意。"
         )
     else:
-        lines.append("- 若加權守住 MA20 且台積電偏強：回踩支撐的選股可留意。")
-    if sox_price:
-        lines.append(
-            f"- 若費半跌破近期低點或外資大賣：高估值個股先觀望。"
-        )
-    else:
-        lines.append("- 若費半走軟或外資大賣：高估值個股先觀望。")
-    lines.append("- 若個股跌破支撐：視為轉弱，先降低關注度。")
-    lines.append("- 若個股進入壓力區或單日漲幅過大：不追高，等回踩。")
-    lines.append("- 若個股收復支撐且量增：可觀察是否有效突破。")
+        lines.append("- 加權守 MA20 且台積電強：回踩支撐可留意。")
+    lines.append("- 費半跌破 MA50 或外資大賣：高估值先觀望。")
+    lines.append("- 個股跌破支撐：視為轉弱，降低關注。")
+    lines.append("- 個股進壓力區或漲幅過大：不追高，等回踩。")
     lines.append("")
     return lines
 
 
 def tw_disclaimer_lines() -> List[str]:
     return [
-        "## 五、備註",
+        "📝 備註",
         "- 目標價以 Factset（QFII）為準，新聞爬蟲目標價僅供輔助參考。",
         "- 目標價距現價 > 50% 時標「長期參考」，不作為短線觸發。",
         "- 本廣播非個人化投資建議，請自行對照持倉與風險承受度。",

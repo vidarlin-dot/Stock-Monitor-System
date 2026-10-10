@@ -187,46 +187,37 @@ def _ma_side(price: float, ma: float) -> str:
 
 
 def build_market_context_lines(ctx: Dict[str, Any]) -> List[str]:
-    """Render section 一、市場風向儀表板 lines."""
+    """Render the compact 市場風向 lines (SMH + VIX/10Y/DXY)."""
     lines: List[str] = []
     etfs = ctx.get("etfs", {})
     vix  = ctx.get("vix", {})
     tnx  = ctx.get("tnx10", {})
     dxy  = ctx.get("dxy", {})
 
-    lines.append("## 一、市場風向儀表板")
+    lines.append("🌐 市場風向")
 
-    def _etf_line(tk: str) -> Optional[str]:
-        d = etfs.get(tk)
-        if not d or not d.get("price"):
-            return None
-        label = d.get("label", tk)
-        price = d["price"]
-        chg   = d["day_change_pct"]
-        ma20  = d.get("ma20", 0)
-        ma50  = d.get("ma50", 0)
-        s20   = _ma_side(price, ma20)
-        s50   = _ma_side(price, ma50)
-        return (
-            f"- **{tk}**（{label}）：{price:,.2f}（{_fmt_pct(chg)}），"
-            f"MA20 {_fmt_num(ma20)}（{s20}）、MA50 {_fmt_num(ma50)}（{s50}）"
+    smh = etfs.get("SMH", {})
+    if smh.get("price"):
+        s20 = _ma_side(smh["price"], smh.get("ma20", 0))
+        s50 = _ma_side(smh["price"], smh.get("ma50", 0))
+        lines.append(
+            f"📉 SMH 半導體ETF {smh['price']:,.2f}（{_fmt_pct(smh.get('day_change_pct', 0))}）"
+            f"｜MA20 {s20}｜MA50 {s50}"
         )
 
-    for tk in ("SMH", "SOXX", "QQQ", "SPY", "XLK"):
-        ln = _etf_line(tk)
-        if ln:
-            lines.append(ln)
+    vix_parts: List[str] = []
+    if vix.get("price"):
+        vix_parts.append(f"😨 VIX {vix['price']}")
+    if tnx.get("price"):
+        vix_parts.append(f"10Y {tnx['price']}%")
+    if dxy.get("price"):
+        vix_parts.append(f"DXY {dxy['price']}")
+    if vix_parts:
+        lines.append("｜".join(vix_parts))
 
     rot = ctx.get("sector_rotation", "")
     if rot:
-        lines.append(f"- **主題輪動**：{rot}")
-
-    if vix.get("price"):
-        lines.append(
-            f"- **VIX**：{vix['price']}（{_fmt_pct(vix['day_change_pct'])}）"
-            + ("　**10Y 美債**：" + f"{tnx.get('price','N/A')}%" if tnx.get("price") else "")
-            + ("　**DXY**：" + f"{dxy['price']}" if dxy.get("price") else "")
-        )
+        lines.append(f"🔄 主題輪動：{rot}")
 
     lines.append("")
     return lines
@@ -256,38 +247,59 @@ def get_mood_label(ctx: Dict[str, Any]) -> str:
 
 
 def scenario_lines(ctx: Dict[str, Any]) -> List[str]:
-    """Render section 四、情境腳本 with real numbers where available."""
+    """Render 情境腳本 with real numbers where available."""
     etfs = ctx.get("etfs", {})
     vix  = ctx.get("vix", {})
     smh  = etfs.get("SMH", {})
     smh_ma20 = smh.get("ma20", 0)
     smh_ma50 = smh.get("ma50", 0)
-    vix_val  = vix.get("price", 0)
 
     lines: List[str] = []
-    lines.append("## 四、情境腳本")
+    lines.append("⚡ 情境腳本")
     if smh_ma20:
         lines.append(
-            f"- 若 SMH 守住 MA20（{smh_ma20:,.2f}）且 VIX < 16：回踩支撐的選股可留意。"
+            f"- SMH 守 MA20 {smh_ma20:,.0f} 且 VIX < 16：回踩支撐可留意。"
         )
     else:
-        lines.append("- 若 SMH 守住 MA20 且 VIX < 16：回踩支撐的選股可留意。")
+        lines.append("- SMH 守 MA20 且 VIX < 16：回踩支撐可留意。")
     if smh_ma50:
         lines.append(
-            f"- 若 SMH 跌破 MA50（{smh_ma50:,.2f}）或 VIX > 20：高 Beta、高估值先觀望。"
+            f"- SMH 跌破 MA50 {smh_ma50:,.0f} 或 VIX > 20：高 Beta、高估值先觀望。"
         )
     else:
-        lines.append("- 若 SMH 跌破 MA50 或 VIX > 20：高 Beta、高估值先觀望。")
-    lines.append("- 若龍頭 NVDA 弱、但二線 MU / LITE 強：可能只是輪動，不一定是全面轉空。")
-    lines.append("- 若個股進入壓力區或單日漲幅過大：不追高，等回踩。")
-    lines.append("- 若個股跌破支撐：視為轉弱，先降低關注度。")
+        lines.append("- SMH 跌破 MA50 或 VIX > 20：高 Beta、高估值先觀望。")
+    lines.append("- NVDA 弱、MU / LITE 強：可能只是輪動。")
+    lines.append("- 進壓力區或單日漲幅過大：不追高，等回踩。")
+    lines.append("- 跌破支撐：視為轉弱，降低關注。")
+    lines.append("")
+    return lines
+
+
+def top_analyst_lines(all_scores: Dict[str, Dict[str, Any]], top_n: int = 5) -> List[str]:
+    """Render the 分析師最熱 Top N block (by analyst count desc)."""
+    ranked = [
+        (t, s.get("analysts", 0))
+        for t, s in all_scores.items()
+        if s.get("analysts", 0) > 0
+    ]
+    ranked.sort(key=lambda x: x[1], reverse=True)
+    ranked = ranked[:top_n]
+    if not ranked:
+        return ["📈 分析師最熱 Top 5", "- 無資料", ""]
+    top = max(n for _, n in ranked)
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+    lines = ["📈 分析師最熱 Top 5"]
+    for i, (tk, n) in enumerate(ranked):
+        prefix = medals[i] if i < len(medals) else f"{i+1}."
+        bar_len = max(1, round(n * 12 / top)) if top else 1
+        lines.append(f"{prefix} {tk} {n}家 {'█' * bar_len}")
     lines.append("")
     return lines
 
 
 def disclaimer_lines() -> List[str]:
     return [
-        "## 五、備註",
+        "📝 備註",
         "- 分析師覆蓋僅供參考，不顯示 0→N 變化；前值為 0 時標「待確認」。",
         "- 目標價距現價 > 50% 時標「長期參考」，不作為短線觸發。",
         "- 本廣播非個人化投資建議，請自行對照持倉與風險承受度。",
