@@ -683,16 +683,17 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         if bear_parts:
             lines.append(f"🔴 利空：{'; '.join(bear_parts[:3])}")
         # Earnings date (only future)
-        if d.earnings_date:
+        # Earnings date (only future)
+        earn_date = getattr(d, "next_earnings_date", "")
+        if earn_date:
             try:
-                from datetime import datetime as _dt
-                earn_dt = _dt.strptime(str(d.earnings_date), "%Y-%m-%d")
-                if earn_dt >= _dt.now(TW_TZ).replace(tzinfo=None):
-                    lines.append(f"📅 財報：{d.earnings_date}")
+                earn_dt = datetime.strptime(str(earn_date), "%Y-%m-%d")
+                if earn_dt >= datetime.now(TW_TZ).replace(tzinfo=None):
+                    lines.append(f"📅 財報：{earn_date}")
                 else:
-                    lines.append(f"📅 財報：{d.earnings_date}（已過，追蹤後續）")
+                    lines.append(f"📅 財報：{earn_date}（已過，追蹤後續）")
             except (ValueError, TypeError):
-                lines.append(f"📅 財報：{d.earnings_date}")
+                lines.append(f"📅 財報：{earn_date}")
         lines.append(f"⚡ 情境：{scenario}")
 
     lines.append("")
