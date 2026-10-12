@@ -1,0 +1,113 @@
+name: Weekly Catch-up Check
+
+# Runs Monday 05:00 UTC. GitHub Actions cron can occasionally skip a scheduled
+# run (holiday, runner backlog, or a failed workflow that never re-ran).
+# This job checks whether last week's scheduled runs for the US + TW daily
+# monitors actually fired on their expected weekdays. If any are missing, it
+# re-dispatches the affected workflow so the user does not silently miss a
+# report.
+on:
+  schedule:
+    - cron: '00 5 * * 1'
+  workflow_dispatch:
+
+jobs:
+  catch-up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for missed schedule runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, datetime, sys
+
+          def run_gh(args, retry=True):
+              cmd = ["gh"] + args
+              for attempt in range(3 if retry else 1):
+                  r = subprocess.run(cmd, capture_output=True, text=True)
+                  if r.returncode == 0:
+                      return r.stdout
+                  if attempt + 1 < 3:
+                      print("retry gh after rc=%s: %s" % (r.returncode, r.stderr.strip()[:200]))
+                      import time; time.sleep(10)
+                  else:
+                      raise RuntimeError("gh failed: " + r.stderr.strip()[:400])
+
+          def list_recent_runs(per_page=30):
+              out = run_gh(["api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs?"
+                                   f"per_page={per_page}"] +
+                           ["--jq", '.workflow_runs[] | {id, name, event, created_at, status, conclusion}'])
+              return [json.loads(l) for l in out.splitlines() if l.strip()]
+
+          def days_ago(date_str):
+              """Return a boolean: is this run within the last 8 days?"""
+              dt = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+              now = datetime.datetime.now(datetime.timezone.utc)
+              return (now - dt).total_seconds() < 8 * 86400
+
+          # What we expect per workflow
+          # - daily_monitor (US): weekdays only, UTC 23:00
+          # - daily_taiwan_monitor (TW): weekdays only, UTC 00:30
+          expected = {
+              "Daily Stock Monitor": ("Daily", "US", "00 23 * * 1-5"),
+              "Daily Taiwan Stock Monitor": ("Daily", "TW", "30 0 * * 1-5"),
+          }
+
+          # Collect runs from the last 8 days for each scheduled workflow
+          runs = list_recent_runs(per_page=100)
+
+          # For each expected workflow, find which weekdays in the last 8 days
+          # have at least one SUCCESS (or any) schedule run.
+          missing = {}
+          for name, (label, market, cron) in expected.items():
+              recent = [r for r in runs if r["name"] == name and days_ago(r["created_at"])]
+              if not recent:
+                  # No runs at all for the last 8 days -> something is very off
+                  print(f"{name}: no runs in last 8 days, flag for catch-up")
+                  missing[name] = market
+                  continue
+
+              # Identify the last expected weekday for this market
+              # For US (23:00 UTC weekdays 1-5): last 8 days covers 8 weekdays.
+              # For TW (00:30 UTC weekdays 1-5): same.
+              # Since both run every weekday, if fewer successful schedule runs
+              # than expected weekdays, we catch up.
+              schedule_runs = [r for r in recent if r["event"] == "schedule"]
+              success_weekdays = {r["created_at"][:10] for r in schedule_runs
+                                  if r["status"] == "completed" and r["conclusion"] == "success"}
+              # Expected weekdays in last 8 days (UTC)
+              now = datetime.datetime.now(datetime.timezone.utc)
+              expected_days = set()
+              for i in range(8):
+                  d = (now - datetime.timedelta(days=i)).date()
+                  # US: weekdays only Mon-Fri
+                  if d.weekday() < 5:
+                      expected_days.add(d.isoformat())
+              missing_days = expected_days - success_weekdays
+              if missing_days:
+                  print(f"{name}: missed schedule days (UTC): {sorted(missing_days)}")
+                  missing[name] = market
+
+          # Re-dispatch any missed workflows (only if catch-up needed)
+          if missing:
+              for wf_name, market in missing.items():
+                  # Map workflow name -> .yml file
+                  wf_file = "daily_monitor.yml" if "US" in market else "daily_taiwan_monitor.yml"
+                  # Only dispatch once per market (dedup)
+                  print(f"Dispatching {wf_file} for {market}")
+                  out = run_gh(["-X", "post",
+                                 f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/{wf_file}/dispatches",
+                                 "-f", "ref=main"], retry=False)
+          else:
+              print("All expected schedule runs present. Nothing to catch up.")
+          PY
+        continue-on-error: true
