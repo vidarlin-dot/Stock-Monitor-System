@@ -419,28 +419,37 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
 
     # Exa-scraped target changes (still displayed, but formatted cleanly)
     if exa_changes:
-        lines.append("## 📢 法人目標價即時異動（新聞爬蟲）")
+        exa_lines = []
         for ticker, chg_info in exa_changes.items():
             name = _name_map.get(ticker, ticker)
-            c = chg_info.get("curr", {})
-            p = chg_info.get("prev")
-            new_tgt = c.get("target", 0)
-            new_broker = c.get("broker", "")
-            new_date = c.get("date", "")
-            if p:
-                old_tgt = p.get("target", 0)
-                lines.append(
-                    f"  {name} ({ticker}) 目標價 ${old_tgt:.2f} → ${new_tgt:.2f}"
-                    f"{' (' + new_broker + ')' if new_broker else ''}"
-                    f"{'（' + chg_info.get('reason', '') + '）' if chg_info.get('reason') else ''}"
-                )
+            cur = chg_info.get("curr", {})
+            prev = chg_info.get("prev")
+            new_tgt = cur.get("target", 0)
+            if cur.get("rejected") or new_tgt <= 0:
+                continue
+            new_broker = cur.get("broker", "")
+            new_date = cur.get("date", "")
+            reason = chg_info.get("reason", "")
+            if reason in ("newer_date", "None", "NaN", "", "None", "newer") or new_date in ("", "None", "NaN"):
+                reason = ""
+            if new_date in ("None", "NaN"):
+                new_date = ""
+            if prev:
+                old_tgt = prev.get("target", 0)
+                if old_tgt > 0:
+                    exa_lines.append(
+                        f"  {name} ({ticker}) 目標價 ${old_tgt:.2f} → ${new_tgt:.2f}"
+                        f"{' (' + new_broker + ')' if new_broker else ''}"
+                        f"{'（' + reason + '）' if reason else ''}")
             else:
-                lines.append(
+                exa_lines.append(
                     f"  {name} ({ticker}) 新目標價 ${new_tgt:.2f}"
                     f"{' (' + new_broker + ')' if new_broker else ''}"
-                    f"（{new_date}）"
-                )
-        lines.append("")
+                    f"{'（' + new_date + '）' if new_date else ''}")
+        if exa_lines:
+            lines.append("## 📢 法人目標價即時異動（新聞爬蟲）")
+            lines.extend(exa_lines)
+            lines.append("")
 
     if analyst_added:
         lines.append("## 📈 分析師追蹤人數增加")

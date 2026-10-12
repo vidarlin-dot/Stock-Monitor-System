@@ -292,6 +292,57 @@ def save_snapshot(targets: Dict[str, Dict[str, Any]]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Guardrails
+# ---------------------------------------------------------------------------
+
+# Tickers with known price-unit issues in scraped/news targets.  The scraped
+# figure must stay within these bounds (TW: TWD per share).
+# Anything outside is almost certainly a parsing artifact (e.g. a "萬元"
+# headline or a market-cap figure grabbed by regex) and is rejected.
+TW_TARGET_BOUNDS = {
+    "3017": (3000.0, 5000.0),
+    "3443": (4000.0, 10000.0),
+    "3661": (3000.0, 8000.0),
+    "6515": (3000.0, 15000.0),
+    "8299": (1000.0, 3500.0),
+}
+
+
+def sanitize_target_prices(kind: str,
+                           targets: Dict[str, Dict[str, Any]],
+                           current_prices: Optional[Dict[str, float]] = None
+                           ) -> Dict[str, Dict[str, Any]]:
+    """Reject implausible scraped targets before they reach the report.
+
+    1. Bounded tickers: target must fall inside TW_TARGET_BOUNDS (hard check).
+    2. General sanity: if current price is known, target must be between
+       40% and 250% of it.  Targets outside that band are dropped (target=0)
+       and logged, because they cannot trigger a material-change diff.
+    """
+    if kind != "tw":
+        return targets
+    cp = current_prices or {}
+    for t, rec in targets.items():
+        tgt = rec.get("target", 0)
+        if tgt <= 0:
+            continue
+        lo, hi = TW_TARGET_BOUNDS.get(t, (0.0, float("inf")))
+        if tgt < lo or tgt > hi:
+            logger.warning(
+                "[爬蟲防呆] %s 目標價 %.0f 超出合理區間 %.0f~%.0f，捨棄",
+                t, tgt, lo, hi)
+            rec["target"] = 0.0
+            rec["rejected"] = "out_of_bounds"
+            continue
+        c = cp.get(t, 0)
+        if c > 0 and not (0.4 * c <= tgt <= 2.5 * c):
+            logger.warning(
+                "[爬蟲防呆] %s 目標價 %.0f 與現價 %.0f 相差過大（>2.5x 或 <40%），捨棄",
+                t, tgt, c)
+            rec["target"] = 0.0
+            rec["rejected"] = "price_mismatch"
+    return targets
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -379,6 +430,8 @@ def fetch_targets_for_watchlist(
             ticker, name, results[ticker]["target"],
             results[ticker]["broker"], results[ticker]["date"],
         )
+    if kind == "tw":
+        results = sanitize_target_prices(kind, results, current_prices)
     return results
 
 
@@ -547,3 +600,6 @@ if __name__ == "__main__":
     prev = load_prev_snapshot()
     print("\n--- diff vs prev snapshot ---")
     print(json.dumps(diff_targets(prev, fresh), ensure_ascii=False, indent=2))
+
+
+

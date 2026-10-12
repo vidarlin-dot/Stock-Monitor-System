@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 import pytz
 
+from tw_name_map import tw_display_name
 from tw_market_context import (
     fetch_tw_market_context,
     build_tw_context_lines,
@@ -537,25 +538,39 @@ def build_taiwan_focus_report(stocks_data, watchlist,
 
     # Exa-scraped target changes
     if exa_changes:
-        lines.append("## 📢 法人目標價即時異動（新聞爬蟲，輔助參考）")
+        exa_lines: List[str] = []
         for ticker, chg in exa_changes.items():
-            name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
-            c = chg.get("curr", {})
-            p = chg.get("prev")
-            new_tgt = c.get("target", 0)
-            new_broker = c.get("broker", "")
-            new_date = c.get("date", "")
-            if p:
-                old_tgt = p.get("target", 0)
-                lines.append(
-                    f"  {name} ({ticker}) 新聞目標價 {old_tgt:.0f} → {new_tgt:.0f}"
-                    f"{' (' + new_broker + ')' if new_broker else ''}"
-                    f" {'（' + chg.get('reason', '') + '）' if chg.get('reason') else ''}")
+            name = tw_display_name(ticker,
+                str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip())
+            cur = chg.get("curr", {})
+            prev = chg.get("prev")
+            new_tgt = cur.get("target", 0)
+            if cur.get("rejected") or new_tgt <= 0:
+                continue
+            new_broker = cur.get("broker", "")
+            new_date = cur.get("date", "")
+            reason = chg.get("reason", "")
+            # Scrub template placeholders that leaked through the pipeline.
+            if reason in ("newer_date", "None", "NaN", "", "None", "newer") or new_date in ("", "None", "NaN"):
+                reason = ""
+            if new_date in ("None", "NaN"):
+                new_date = ""
+            if prev:
+                old_tgt = prev.get("target", 0)
+                if old_tgt > 0:
+                    exa_lines.append(
+                        f"  {name} ({ticker}) 新聞目標價 {old_tgt:.0f} → {new_tgt:.0f}"
+                        f"{' (' + new_broker + ')' if new_broker else ''}"
+                        f"{'（' + reason + '）' if reason else ''}")
             else:
-                lines.append(
+                exa_lines.append(
                     f"  {name} ({ticker}) 新聞新目標價 {new_tgt:.0f}"
-                    f"{' (' + new_broker + ')' if new_broker else ''}（{new_date}）")
-        lines.append("")
+                    f"{' (' + new_broker + ')' if new_broker else ''}"
+                    f"{'（' + new_date + '）' if new_date else ''}")
+        if exa_lines:
+            lines.append("## 📢 法人目標價即時異動（新聞爬蟲，輔助參考）")
+            lines.extend(exa_lines)
+            lines.append("")
 
     if analyst_added:
         lines.append("## 📈 分析師追蹤人數增加")
@@ -805,7 +820,11 @@ def main():
     exa_changes: Dict[str, Dict[str, Any]] = {}
     if EXA_AVAILABLE:
         logger.info("Fetching latest analyst targets via exa...")
-        exa_results = fetch_targets_for_watchlist(watchlist, kind="tw", limit=15)
+        _cur_prices = {t: s.current_price for t, s in stocks_data.items()
+                       if s.current_price > 0}
+        exa_results = fetch_targets_for_watchlist(
+            watchlist, kind="tw", limit=15,
+            current_prices=_cur_prices)
         if exa_results:
             prev_snapshot = load_prev_snapshot()
             exa_changes = diff_targets(prev_snapshot, exa_results)
