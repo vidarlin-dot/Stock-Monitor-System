@@ -745,8 +745,10 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         status = _tw_status_for_stock(d)
         scenario = _tw_scenario_for_stock(d, qfii)
         chg = d.day_change_pct
+        nm = tw_display_name(ticker,
+            str(stock_info[ticker]["h"].get("短名", "")).strip())
         if status in ("轉弱", "過熱", "壓力區") or abs(chg) > 3:
-            notable.append(f"- {ticker}：日漲跌 {chg:+.1f}%，狀態「{status}」，{scenario}")
+            notable.append(f"- {nm} ({ticker})：日漲跌 {chg:+.1f}%，狀態「{status}」，{scenario}")
     if notable:
         lines.extend(notable[:5])
     else:
