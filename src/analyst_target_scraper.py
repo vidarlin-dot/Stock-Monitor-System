@@ -338,7 +338,7 @@ def sanitize_target_prices(kind: str,
         c = cp.get(t, 0)
         if c > 0 and not (0.4 * c <= tgt <= 2.5 * c):
             logger.warning(
-                "[爬蟲防呆] %s 目標價 %.0f 與現價 %.0f 相差過大（>2.5x 或 <40%），捨棄",
+                "[爬蟲防呆] %s 目標價 %.0f 與現價 %.0f 相差過大（超出 40%%~250%% 區間），捨棄",
                 t, tgt, c)
             rec["target"] = 0.0
             rec["rejected"] = "price_mismatch"
