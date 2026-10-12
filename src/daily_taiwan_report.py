@@ -598,6 +598,11 @@ def build_taiwan_focus_report(stocks_data, watchlist,
     lines.append("狀態燈：突破｜回踩｜壓力區｜轉弱｜過熱｜觀望")
     lines.append("")
 
+    # Priority ordering:
+    #   1) Sheet-marked 焦點股 (the auto_focus set computed earlier)
+    #   2) Tickers whose target price was just adjusted (QFII diff / exa /
+    #      analyst_added)
+    #   3) Everything else by focus score
     target_change_tickers: set = set()
     for ticker, qfii in qfii_data.items():
         target = qfii.get("qfii_target", 0)
@@ -610,13 +615,28 @@ def build_taiwan_focus_report(stocks_data, watchlist,
     for ticker in analyst_added:
         if ticker in all_scores:
             target_change_tickers.add(ticker)
-    if target_change_tickers:
-        existing = [(t, s) for t, s in qualified if t not in target_change_tickers]
-        change_entries = [(t, all_scores[t]) for t in target_change_tickers]
-        # Dedup: keep only the first occurrence of each ticker
-        _seen = set()
-        change_entries = [e for e in change_entries if e[0] not in _seen and not _seen.add(e[0])]
-        qualified = change_entries + existing
+
+    ordered: List[tuple] = []
+    _used: set = set()
+
+    # 1) 焦點股 first (in focus-score order, deduped)
+    for t, s in qualified:
+        if t in auto_focus and t not in _used:
+            ordered.append((t, s))
+            _used.add(t)
+
+    # 2) recently-adjusted target tickers next (by focus score, deduped)
+    for t, s in qualified:
+        if t in target_change_tickers and t not in _used:
+            ordered.append((t, s))
+            _used.add(t)
+
+    # 3) remaining eligible tickers
+    for t, s in qualified:
+        if t not in _used:
+            ordered.append((t, s))
+
+    qualified = ordered
 
     display_tickers = [t for t, _ in qualified[:MAX_FOCUS_STOCKS]]
     if not display_tickers:
