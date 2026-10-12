@@ -117,7 +117,7 @@ def _build_focus_detail(ticker: str, data: StockMarketData,
     catalyst_raw = str(h.get("催化劑日期", "")).strip()
     category = score_info["category"]
     qfii = qfii or {}
-    short_name = str(h.get("短名", "")).strip() or data.short_name or ticker
+    short_name = tw_display_name(ticker, str(h.get("短名", "")).strip() or (data.short_name or "").strip())
     tracking = str(h.get("追蹤", "")).strip()
 
     lines.append(f"\n📊 {ticker} {short_name}")
@@ -481,7 +481,7 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         target = qfii.get("qfii_target", 0)
         if target <= 0:
             continue
-        name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
+        name = tw_display_name(ticker, str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip())
         if ticker in (cnyes_ratings or {}):
             rating = (cnyes_ratings or {}).get(ticker, {})
             if rating.get("date", "") == today_str:
@@ -576,7 +576,7 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         lines.append("## 📈 分析師追蹤人數增加")
         for ticker, info in sorted(analyst_added.items(),
                                     key=lambda kv: kv[1]["delta"], reverse=True):
-            name = str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip() or ticker
+            name = tw_display_name(ticker, str(stock_info.get(ticker, {}).get("h", {}).get("短名", "")).strip())
             if info.get("prev", 0) <= 0:
                 if info.get('curr', 0) > 0:
                     lines.append(
@@ -631,7 +631,7 @@ def build_taiwan_focus_report(stocks_data, watchlist,
         d = stock_info[ticker]["data"]
         h = stock_info[ticker]["h"]
         qfii = qfii_data.get(ticker, {})
-        short_name = str(h.get("短名", "")).strip() or ticker
+        short_name = tw_display_name(ticker, str(h.get("短名", "")).strip())
         price = d.current_price
         chg = d.day_change_pct
         status = _tw_status_for_stock(d)
@@ -742,7 +742,7 @@ def top_analyst_lines_tw(all_scores, stock_info, top_n: int = 5):
     for tk, s in all_scores.items():
         n = s.get("analysts", 0)
         if n > 0:
-            short = str(stock_info.get(tk, {}).get("h", {}).get("短名", "")).strip() or tk
+            short = tw_display_name(tk, str(stock_info.get(tk, {}).get("h", {}).get("短名", "")).strip())
             ranked.append((tk, short, n))
     ranked.sort(key=lambda x: x[2], reverse=True)
     ranked = ranked[:top_n]
