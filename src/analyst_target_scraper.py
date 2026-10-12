@@ -17,6 +17,8 @@ Strategy:
          - publication date
     3. Merge with cnyes data (cnyes wins on conflict because it is structured
        data; exa is free-text and is a fallback / supplemental source).
+    5. Guardrail: targets that cannot plausibly belong to the queried ticker
+       are dropped before diffing/reporting (see sanitize_target_prices).
     4. Persist latest snapshot to `src/data/analyst_targets.json` so the next
        run can diff against it and auto-promote changed tickers.
 
@@ -203,6 +205,15 @@ def _extract_from_articles(raw: str) -> List[Dict[str, Any]]:
             m = _TARGET_RE.search(rec.get("snippet", ""))
             if m:
                 target = _clean_target(m.group(1))
+        # Reject articles that never mention the queried ticker: a "散熱四雄"
+        # style piece can quote one peer's 10,000 target while the query was
+        # for a different name.  If neither the title nor the snippet names
+        # the ticker, drop the record.
+        if target > 0 and _ticker not in rec.get("title", "") and \
+                _ticker not in rec.get("snippet", ""):
+            logger.info("Drop article not mentioning %s: %s",
+                        _ticker, (rec.get("title") or "")[:60])
+            target = 0
         rec["target"] = target
         rec["broker"] = broker
         if target > 0:
@@ -388,6 +399,7 @@ def fetch_targets_for_watchlist(
         )
         if raw is None:
             continue
+        _ticker = ticker
         articles = _extract_from_articles(raw)
         if not articles:
             continue
