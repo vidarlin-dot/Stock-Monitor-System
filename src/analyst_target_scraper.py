@@ -350,6 +350,7 @@ def fetch_targets_for_watchlist(
     watchlist: List[Dict[str, Any]],
     kind: str = "tw",
     limit: int = 20,
+    current_prices: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Fetch latest analyst targets for a watchlist via exa.
 
