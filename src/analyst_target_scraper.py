@@ -145,7 +145,7 @@ def _clean_target(raw: str) -> float:
         return 0.0
 
 
-def _extract_from_articles(raw: str) -> List[Dict[str, Any]]:
+def _extract_from_articles(raw: str, ticker: str = "") -> List[Dict[str, Any]]:
     """Parse mcporter's plain-text output into a list of article records.
 
     Each record: {url, published, target, broker, title, raw_snippet}.
@@ -209,10 +209,11 @@ def _extract_from_articles(raw: str) -> List[Dict[str, Any]]:
         # style piece can quote one peer's 10,000 target while the query was
         # for a different name.  If neither the title nor the snippet names
         # the ticker, drop the record.
-        if target > 0 and _ticker not in rec.get("title", "") and \
-                _ticker not in rec.get("snippet", ""):
+        if ticker and target > 0 and \
+                ticker not in rec.get("title", "") and \
+                ticker not in rec.get("snippet", ""):
             logger.info("Drop article not mentioning %s: %s",
-                        _ticker, (rec.get("title") or "")[:60])
+                        ticker, (rec.get("title") or "")[:60])
             target = 0
         rec["target"] = target
         rec["broker"] = broker
@@ -399,8 +400,7 @@ def fetch_targets_for_watchlist(
         )
         if raw is None:
             continue
-        _ticker = ticker
-        articles = _extract_from_articles(raw)
+        articles = _extract_from_articles(raw, ticker)
         if not articles:
             continue
         # Keep only fresh items (last 30 days) when the date is parseable.
