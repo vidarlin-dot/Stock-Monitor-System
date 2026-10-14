@@ -181,6 +181,30 @@ def fetch_us_stock_data(ticker: str) -> Optional[StockMarketData]:
         return data
     except Exception as exc:
         logger.warning("fetch_us_stock_data failed for %s: %s", ticker, exc)
+        # Second attempt: when quoteSummary is rate-limited the history
+        # endpoint often still works. Recover prices that way before cache.
+        try:
+            hist = yf.Ticker(ticker).history(period="3mo")
+            if hist is not None and not hist.empty:
+                closes = hist["Close"].tolist()
+                cur = float(closes[-1])
+                prev = float(closes[-2]) if len(closes) > 1 else cur
+                pchg = ((cur - prev) / prev * 100) if prev > 0 else 0.0
+                rec = StockMarketData(
+                    ticker=ticker,
+                    company_name=ticker,
+                    current_price=cur,
+                    previous_close=prev,
+                    day_change_pct=pchg,
+                    day_high=cur,
+                    day_low=cur,
+                    fetched_at=datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M"),
+                )
+                _save_cache(ticker, rec.__dict__)
+                logger.info("%s: recovered via history-only fetch (%.2f)", ticker, cur)
+                return rec
+        except Exception as exc2:
+            logger.warning("%s: history-only recovery failed: %s", ticker, exc2)
         # Fallback to cache
         if cached:
             sd = StockMarketData(**cached)

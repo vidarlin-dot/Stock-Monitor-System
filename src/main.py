@@ -21,6 +21,7 @@ import pytz
 
 from config import GoogleSheetsManager
 from line_notifier import LineNotifier
+from us_name_map import us_display_name
 from us_market_context import (
     fetch_market_context,
     build_market_context_lines,
@@ -203,11 +204,20 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     all_tickers = auto_focus_tickers + scored_tickers
     stocks_data = fetch_all_us_stock_data(all_tickers)
     if not stocks_data:
-        return (
-            f"# 美股 AI 焦點股廣播 | {date_str}\n{wk_note}\n"
-            "⚠️ 無法取得股票資料，請稍後再試。",
-            [], {}, {},
-        )
+        # Last resort: pull whatever is still on disk so the report can
+        # ship with a stale-data notice instead of an empty failure.
+        from us_market_data import _load_cache
+        for tk in all_tickers:
+            cd = _load_cache(tk)
+            if cd and cd.get("current_price", 0) > 0:
+                stocks_data[tk] = StockMarketData(**cd)
+        if not stocks_data:
+            return (
+                f"# 美股 AI 焦點股廣播 | {date_str}\n{wk_note}\n"
+                "⚠️ 無法取得股票資料，請稍後再試。",
+                [], {}, {},
+            )
+        wk_note = (wk_note + "\n⚠️ 今日 Yahoo 報價全部失敗，以下為上個交易日數據。").strip() if wk_note else "⚠️ 今日 Yahoo 報價全部失敗，以下為上個交易日數據。"
 
     all_scores: Dict[str, Dict[str, Any]] = {}
     stock_info: Dict[str, Dict[str, Any]] = {}
@@ -276,7 +286,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     for h in holdings_data:
         tk = str(h.get('ticker', h.get('代碼', ''))).strip().upper()
         if tk:
-            _name_map[tk] = str(h.get('company_name', h.get('名稱', ''))).strip() or tk
+            _name_map[tk] = us_display_name(tk, str(h.get('company_name', h.get('名稱', ''))).strip())
 
 
     # --- 市場風向 ---
@@ -324,7 +334,7 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
         d = stock_info[ticker]["data"]
         h = stock_info[ticker]["h"]
         score = stock_info[ticker]["score"]
-        short_name = str(h.get("短名", "")).strip() or ticker
+        short_name = us_display_name(ticker, str(h.get("短名", "")).strip())
         price = d.current_price
         chg   = d.day_change_pct
         status = _status_for_stock(d)
