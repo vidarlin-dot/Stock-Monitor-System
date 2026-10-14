@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytz
@@ -110,41 +110,46 @@ def _is_cache_fresh(cache_data, max_age_hours=24) -> bool:
 # Used as a fallback when yfinance quoteSummary / history fail.
 # ---------------------------------------------------------------------------
 
-def _fetch_us_chart(ticker: str) -> Optional[StockMarketData]:
-    """Fetch a US quote via Yahoo's chart JSON endpoint (cookie-less).
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
-    Same endpoint yfinance uses internally for history, called directly so
-    it survives quoteSummary rate-limiting / 404s. Returns a
-    StockMarketData with prices + 20-day context; analyst fields stay 0
-    (use Yahoo info or Exa for those).
+
+def _yahoo_quote(ticker: str) -> Optional[StockMarketData]:
+    """Fetch a US quote from Yahoo's free cookie-less chart endpoint.
+
+    Two calls: a 5-day series for the previous close, plus a 3-month
+    series for 20-day context (highs/lows/volumes). Survives
+    quoteSummary rate-limiting, which kills yf.Ticker().info.
     """
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
-           f"{ticker}?range=3mo&interval=1d")
     try:
-        r = requests.get(url, timeout=15,
-                         headers={"User-Agent": "Mozilla/5.0"})
-        r.raise_for_status()
-        result = r.json().get("chart", {}).get("result")
-        if not result:
-            logger.warning("chart API %s: no result (%s)",
-                           ticker, r.text[:200])
-            return None
-        res = result[0]
-        meta = res.get("meta", {})
-        quote = res.get("indicators", {}).get("quote", [{}])[0]
-        closes = [x for x in quote.get("close", []) if x is not None]
-        highs = [x for x in quote.get("high", []) if x is not None]
-        lows = [x for x in quote.get("low", []) if x is not None]
-        vols = [x for x in quote.get("volume", []) if x is not None]
+        r1 = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            "?range=5d&interval=1d",
+            timeout=15, headers={"User-Agent": _UA})
+        r1.raise_for_status()
+        res1 = r1.json()["chart"]["result"][0]
+        q1 = res1["indicators"]["quote"][0]
+        closes = [x for x in q1.get("close", []) if x is not None]
         if not closes:
             return None
         cur = float(closes[-1])
-        prev = (meta.get("chartPreviousClose")
-                or (float(closes[-2]) if len(closes) > 1 else cur))
-        if not prev:
-            prev = cur
-        high_20d = max(highs[-20:]) if highs else cur
-        low_20d = min(lows[-20:]) if lows else cur
+        prev = (float(closes[-2]) if len(closes) > 1
+                else res1.get("meta", {}).get("chartPreviousClose") or cur)
+        prev = float(prev) if prev else cur
+
+        r2 = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            "?range=3mo&interval=1d",
+            timeout=15, headers={"User-Agent": _UA})
+        r2.raise_for_status()
+        res2 = r2.json()["chart"]["result"][0]
+        q2 = res2["indicators"]["quote"][0]
+        highs = [x for x in q2.get("high", []) if x is not None]
+        lows = [x for x in q2.get("low", []) if x is not None]
+        vols = [x for x in q2.get("volume", []) if x is not None]
+        closes3 = [x for x in q2.get("close", []) if x is not None]
+        if closes3 and abs(float(closes3[-1]) - cur) < 1e-6:
+            closes3[-1] = cur
         avg_vol_20d = int(sum(vols[-20:]) / min(20, len(vols))) if vols else 0
         pchg = ((cur - prev) / prev * 100) if prev > 0 else 0.0
         data = StockMarketData(
@@ -157,23 +162,105 @@ def _fetch_us_chart(ticker: str) -> Optional[StockMarketData]:
             day_low=cur,
             volume=int(vols[-1]) if vols else 0,
             avg_volume_20d=avg_vol_20d,
-            close_20d=sum(closes[-20:]) / min(20, len(closes)),
-            high_20d=high_20d,
-            low_20d=low_20d,
+            close_20d=(sum(closes3[-20:]) / min(20, len(closes3)))
+                      if closes3 else cur,
+            high_20d=max(highs[-20:]) if highs else cur,
+            low_20d=min(lows[-20:]) if lows else cur,
             fetched_at=datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M"),
         )
         _save_cache(ticker, data.__dict__)
-        logger.info("%s: fetched via chart API (%.2f)", ticker, cur)
+        logger.info("%s: fetched via Yahoo chart (%.2f)", ticker, cur)
         return data
     except Exception as exc:
-        logger.warning("chart API fetch failed for %s: %s", ticker, exc)
+        logger.warning("Yahoo chart fetch failed for %s: %s", ticker, exc)
+        return None
+
+
+_NASDAQ_HDRS = {
+    "User-Agent": _UA,
+    "Accept": "application/json",
+    "Origin": "https://www.nasdaq.com",
+    "Referer": "https://www.nasdaq.com/",
+}
+
+
+def _nasdaq_num(val) -> float:
+    """Parse a Nasdaq value like "$228.52" / "132,267,200" / "+0.97%"."""
+    if val is None:
+        return 0.0
+    s = str(val).replace("$", "").replace(",", "").replace("%", "").strip()
+    neg = s.startswith("-")
+    if s.startswith(("+", "-")):
+        s = s[1:]
+    try:
+        f = float(s)
+    except ValueError:
+        return 0.0
+    return -f if neg else f
+
+
+def fetch_nasdaq_quote(ticker: str) -> Optional[StockMarketData]:
+    """Cross-site backup: Nasdaq.com's own JSON quote + chart endpoints.
+
+    Used ONLY when every Yahoo endpoint is down. Free, no key. The
+    30-day chart gives 20-day OHLC/volume context; header values come
+    from the same host so they are consistent.
+    """
+    import time as _time
+    end = _time.strftime("%Y-%m-%d")
+    start = (datetime.now(TW_TZ) - timedelta(days=30)).strftime("%Y-%m-%d")
+    url = (f"https://api.nasdaq.com/api/quote/{ticker}/chart"
+           f"?assetclass=stocks&asset={ticker}"
+           f"&fromdate={start}&toDate={end}")
+    try:
+        r = requests.get(url, timeout=20, headers=_NASDAQ_HDRS)
+        r.raise_for_status()
+        d = r.json().get("data", {})
+        rows = d.get("chart") or []
+        if not rows:
+            logger.warning("Nasdaq %s: empty chart", ticker)
+            return None
+        closes = [_nasdaq_num(row.get("z", {}).get("close")) for row in rows]
+        closes = [x for x in closes if x > 0]
+        if not closes:
+            return None
+        cur = _nasdaq_num(d.get("lastSalePrice")) or closes[-1]
+        prev = _nasdaq_num(d.get("previousClose")) or (
+            closes[-2] if len(closes) > 1 else cur)
+        highs = [_nasdaq_num(row.get("z", {}).get("high")) for row in rows]
+        lows = [_nasdaq_num(row.get("z", {}).get("low")) for row in rows]
+        vols = [_nasdaq_num(row.get("z", {}).get("volume")) for row in rows]
+        highs = [x for x in highs if x > 0]
+        lows = [x for x in lows if x > 0]
+        vols = [x for x in vols if x > 0]
+        pchg = ((cur - prev) / prev * 100) if prev > 0 else 0.0
+        data = StockMarketData(
+            ticker=ticker,
+            company_name=str(d.get("company", ticker)),
+            current_price=cur,
+            previous_close=prev,
+            day_change_pct=pchg,
+            day_high=(max(highs[-1:]) if highs else cur),
+            day_low=(min(lows[-1:]) if lows else cur),
+            volume=int(vols[-1]) if vols else 0,
+            avg_volume_20d=int(sum(vols[-20:]) / min(20, len(vols))) if vols else 0,
+            close_20d=sum(closes[-20:]) / min(20, len(closes)),
+            high_20d=max(highs[-20:]) if highs else cur,
+            low_20d=min(lows[-20:]) if lows else cur,
+            fetched_at=datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M"),
+        )
+        _save_cache(ticker, data.__dict__)
+        logger.info("%s: fetched via Nasdaq.com backup (%.2f)", ticker, cur)
+        return data
+    except Exception as exc:
+        logger.warning("Nasdaq fetch failed for %s: %s", ticker, exc)
         return None
 
 
 def fetch_us_stock_data(ticker: str) -> Optional[StockMarketData]:
     """Fetch complete market data for one US stock.
 
-    Source chain: fresh cache -> Yahoo chart API -> Yahoo (yf) -> history-only -> stale cache.
+    Source chain: fresh cache -> Yahoo chart -> Yahoo (yf) -> Nasdaq.com (cross-site) -> Yahoo history -> stale cache.
     """
     cached = _load_cache(ticker)
     if cached and _is_cache_fresh(cached):
@@ -181,8 +268,8 @@ def fetch_us_stock_data(ticker: str) -> Optional[StockMarketData]:
         logger.info("%s: using fresh cache", ticker)
         return sd
 
-    # Try the Yahoo chart API first (free, no key, cookie-less).
-    alt = _fetch_us_chart(ticker)
+    # Yahoo cookie-less chart API first (free, survives quoteSummary limits).
+    alt = _yahoo_quote(ticker)
     if alt and alt.current_price > 0:
         return alt
 
@@ -254,6 +341,10 @@ def fetch_us_stock_data(ticker: str) -> Optional[StockMarketData]:
         return data
     except Exception as exc:
         logger.warning("fetch_us_stock_data failed for %s: %s", ticker, exc)
+        # Cross-site backup before trying Yahoo history again.
+        nasq = fetch_nasdaq_quote(ticker)
+        if nasq and nasq.current_price > 0:
+            return nasq
         # Second attempt: when quoteSummary is rate-limited the history
         # endpoint often still works. Recover prices that way before cache.
         try:
