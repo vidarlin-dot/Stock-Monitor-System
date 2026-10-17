@@ -56,6 +56,11 @@ TW_TZ = pytz.timezone("Asia/Taipei")
 FOCUS_THRESHOLD = 60
 MAX_FOCUS_STOCKS = 10
 
+# Tickers to always display, regardless of FocusScore.
+# Mirrors the 追蹤=焦點股 setting in the Google Sheet but keeps the
+# report useful even when the Sheet hasn't been updated yet.
+US_AUTO_FOCUS = {"APP", "AVGO", "BEAM", "MRVL", "STX", "TSM"}
+
 
 def _fmt_price(val):
     if val <= 0: return "N/A"
@@ -189,7 +194,8 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
     date_str = now_tw.strftime("%Y-%m-%d (%a)")
     wk_note = weekend_note().strip()
 
-    auto_focus_tickers: List[str] = []
+    # Seed with hardcoded focus set; Sheet 追蹤 column adds more.
+    auto_focus_tickers: List[str] = [t for t in US_AUTO_FOCUS]
     scored_tickers: List[str] = []
     for h in holdings_data:
         ticker = str(h.get("ticker", h.get("代碼", ""))).strip().upper()
@@ -197,7 +203,8 @@ def build_daily_report(holdings_data, exa_changes: dict = None, analyst_added: d
             continue
         tracking = str(h.get("tracking", h.get("追蹤", ""))).strip()
         if tracking == "焦點股":
-            auto_focus_tickers.append(ticker)
+            if ticker not in auto_focus_tickers:
+                auto_focus_tickers.append(ticker)
         else:
             scored_tickers.append(ticker)
 

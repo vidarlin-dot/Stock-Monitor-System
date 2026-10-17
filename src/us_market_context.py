@@ -327,6 +327,25 @@ def weekend_note() -> str:
     return ""
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def is_us_trading_day() -> bool:
     """Return True if today is a US trading day (Mon-Fri, not a major market holiday)."""
     now = datetime.now(TZ)
